@@ -12,9 +12,17 @@ contextBridge.exposeInMainWorld('carStudioAPI', {
   refreshBatch: (payload) => ipcRenderer.invoke('runs:refresh-batch', payload),
   pauseJob: (payload) => ipcRenderer.invoke('runs:pause-job', payload),
   resumeJob: (payload) => ipcRenderer.invoke('runs:resume-job', payload),
+  loadUpdateStatus: () => ipcRenderer.invoke('updates:status'),
+  checkForUpdates: () => ipcRenderer.invoke('updates:check'),
+  installUpdate: () => ipcRenderer.invoke('updates:install'),
   onRunEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('run:event', listener);
     return () => ipcRenderer.removeListener('run:event', listener);
+  },
+  onUpdateEvent: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('update:event', listener);
+    return () => ipcRenderer.removeListener('update:event', listener);
   },
 });

@@ -14,6 +14,8 @@ import {
 import { SettingsStore } from './services/settings-store.js';
 import { JobStore } from './services/job-store.js';
 import { RunManager } from './services/run-manager.js';
+import { UpdateService } from './services/update-service.js';
+import { APP_NAME } from '../shared/constants.js';
 import { listImagePathsPage } from '../shared/files.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,6 +25,7 @@ let mainWindow;
 let settingsStore;
 let jobStore;
 let runManager;
+let updateService;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -31,7 +34,7 @@ function createWindow() {
     minWidth: 1160,
     minHeight: 760,
     backgroundColor: '#f4ede1',
-    title: 'Car Replacement Studio',
+    title: APP_NAME,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -100,6 +103,8 @@ async function chooseReferences() {
 app.whenReady().then(async () => {
   log.initialize();
 
+  const { autoUpdater } = await import('electron-updater');
+
   settingsStore = new SettingsStore({
     userDataPath: app.getPath('userData'),
     safeStorage,
@@ -111,9 +116,19 @@ app.whenReady().then(async () => {
     settingsStore,
     jobStore,
   });
+  updateService = new UpdateService({
+    app,
+    updater: autoUpdater,
+    windowProvider: () => mainWindow,
+    logger: log,
+  });
 
   ipcMain.handle('settings:load', () => settingsStore.load());
-  ipcMain.handle('settings:save', (_event, payload) => settingsStore.save(payload));
+  ipcMain.handle('settings:save', async (_event, payload) => {
+    const settings = await settingsStore.save(payload);
+    await updateService.configure(settings);
+    return settings;
+  });
   ipcMain.handle('settings:clear-api-key', () => settingsStore.clearApiKey());
   ipcMain.handle('jobs:list', () => jobStore.list());
   ipcMain.handle('dialog:choose-directory', () => chooseDirectory());
@@ -145,8 +160,17 @@ app.whenReady().then(async () => {
       window: mainWindow,
     }),
   );
+  ipcMain.handle('updates:status', () => updateService.getStatus());
+  ipcMain.handle('updates:check', () => updateService.checkForUpdates());
+  ipcMain.handle('updates:install', () => {
+    updateService.installUpdateAndRestart();
+    return { accepted: true };
+  });
 
   createWindow();
+  const settings = await settingsStore.load();
+  await updateService.configure(settings);
+  await updateService.checkOnLaunch();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

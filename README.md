@@ -1,19 +1,19 @@
-# Car Replacement Studio
+# Reference Studio
 
-macOS desktop app for turning a folder of car images into Gemini-generated outputs that match 3 saved reference scenes.
+macOS desktop app for turning a folder of source images into Gemini-generated outputs that match saved reference scenes.
 
 ## What it does
 
 - Runs as a double-clickable Electron desktop app on Apple Silicon Macs.
 - Saves a Gemini API key locally on the Mac.
-- Saves exactly 3 reference images once in Settings.
+- Saves one or more reference images once in Settings.
 - Generates loose output files named like `blue,911-gt3-rs,studio-front.png`.
 - Supports both immediate `Sync` runs and cheaper `Batch` submissions with later fetch/refresh.
 
 ## Development
 
 ```bash
-npm install --cache /tmp/npm-cache-shabbuscript
+npm install --cache /tmp/npm-cache-reference-studio
 npm start
 ```
 

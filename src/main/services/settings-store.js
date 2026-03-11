@@ -29,6 +29,9 @@ function defaultSettingsData() {
     referenceFiles: [],
     model: DEFAULT_MODEL,
     searchEnabled: DEFAULT_SEARCH_ENABLED,
+    updateRepoOwner: '',
+    updateRepoName: '',
+    updateAutoCheck: true,
     encryptedApiKey: null,
     plainApiKey: null,
     apiKeyUpdatedAt: null,
@@ -66,6 +69,16 @@ export class SettingsStore {
         typeof partialSettings.searchEnabled === 'boolean'
           ? partialSettings.searchEnabled
           : current.searchEnabled,
+      updateRepoOwner: Object.hasOwn(partialSettings, 'updateRepoOwner')
+        ? String(partialSettings.updateRepoOwner || '').trim()
+        : current.updateRepoOwner,
+      updateRepoName: Object.hasOwn(partialSettings, 'updateRepoName')
+        ? String(partialSettings.updateRepoName || '').trim()
+        : current.updateRepoName,
+      updateAutoCheck:
+        typeof partialSettings.updateAutoCheck === 'boolean'
+          ? partialSettings.updateAutoCheck
+          : current.updateAutoCheck,
       updatedAt: timestamp,
     };
 
@@ -144,6 +157,10 @@ export class SettingsStore {
         typeof raw.searchEnabled === 'boolean'
           ? raw.searchEnabled
           : DEFAULT_SEARCH_ENABLED,
+      updateRepoOwner: raw.updateRepoOwner || '',
+      updateRepoName: raw.updateRepoName || '',
+      updateAutoCheck:
+        typeof raw.updateAutoCheck === 'boolean' ? raw.updateAutoCheck : true,
       hasApiKey: Boolean(apiKey),
       apiKeyPreview: apiKey ? `${apiKey.slice(0, 4)}••••${apiKey.slice(-4)}` : '',
       apiKeyUpdatedAt: raw.apiKeyUpdatedAt,

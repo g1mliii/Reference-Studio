@@ -7,7 +7,7 @@
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Car Replacement Studio</title>
+    <title>Reference Studio</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -15,9 +15,9 @@
       <aside class="sidebar">
         <div class="brand">
           <p class="eyebrow">Gemini Desktop Workflow</p>
-          <h1>Car Replacement Studio</h1>
+          <h1>Reference Studio</h1>
           <p class="brand-copy">
-            Turn a folder of car shots into reference-matched outputs with one saved setup.
+            Turn a folder of source images into reference-matched outputs with one saved setup.
           </p>
         </div>
 
@@ -49,9 +49,9 @@
             <div class="card primary-card">
               <h3>Source Folders</h3>
               <label class="field">
-                <span>Cars Folder</span>
+                <span>Source Folder</span>
                 <div class="path-picker">
-                  <input id="cars-dir-input" type="text" readonly placeholder="Choose the folder of car images" />
+                  <input id="cars-dir-input" type="text" readonly placeholder="Choose the folder of source images" />
                   <button id="choose-cars-dir-button" class="secondary-button">Choose</button>
                 </div>
               </label>
@@ -84,8 +84,8 @@
               <div class="run-preview-grid">
                 <div class="preview-box">
                   <div class="card-heading compact">
-                    <h4>Cars In Folder</h4>
-                    <span id="cars-count-pill" class="pill">0 cars</span>
+                    <h4>Source Images</h4>
+                    <span id="cars-count-pill" class="pill">0 images</span>
                   </div>
                   <div id="cars-list" class="file-list"></div>
                   <div class="pager">
@@ -179,10 +179,51 @@
             <div class="card">
               <h3>Reference Images</h3>
               <p class="subtle-copy">
-                Save one or more reference images once. Every run will generate one output per car per reference.
+                Save one or more reference images once. Every run will generate one output per source image per reference.
               </p>
               <button id="choose-references-button" class="secondary-button">Choose Reference Images</button>
               <ul id="reference-list" class="reference-list"></ul>
+            </div>
+
+            <div class="card">
+              <div class="card-heading compact">
+                <h3>App Updates</h3>
+                <span id="update-status-badge" class="status-badge">Not Configured</span>
+              </div>
+              <p class="subtle-copy">
+                Point this build at a public GitHub Releases repo so packaged apps can check on launch and download updates automatically.
+              </p>
+              <label class="field">
+                <span>GitHub Owner</span>
+                <input id="update-owner-input" type="text" placeholder="your-github-name" />
+              </label>
+              <label class="field">
+                <span>Repository</span>
+                <input id="update-repo-input" type="text" placeholder="reference-studio" />
+              </label>
+              <label class="checkbox-row">
+                <input id="update-auto-check-input" type="checkbox" checked />
+                <span>Check GitHub Releases on launch</span>
+              </label>
+              <dl class="status-list">
+                <div>
+                  <dt>Current Version</dt>
+                  <dd id="update-current-version">0.1.0</dd>
+                </div>
+                <div>
+                  <dt>Release Feed</dt>
+                  <dd id="update-feed-status">Not configured</dd>
+                </div>
+              </dl>
+              <p id="update-status-copy" class="muted-status">
+                Add a GitHub owner and repo, save settings, then check for updates.
+              </p>
+              <div class="inline-actions">
+                <button id="check-updates-button" class="secondary-button">Check for Updates</button>
+                <button id="install-update-button" class="primary-button" disabled>
+                  Install Downloaded Update
+                </button>
+              </div>
             </div>
 
             <div class="card">

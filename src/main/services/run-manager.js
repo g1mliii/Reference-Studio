@@ -57,13 +57,13 @@ async function validateReferenceFiles(referenceFiles) {
 
 async function validateCarFiles(carFiles) {
   if (carFiles.length === 0) {
-    throw new Error('No supported car images were found in the selected Cars folder.');
+    throw new Error('No supported source images were found in the selected Source folder.');
   }
 
   const duplicates = findDuplicateStems(carFiles);
   if (duplicates.length) {
     throw new Error(
-      `Duplicate car filenames were found. Each car image needs a unique filename stem: ${duplicates.join(', ')}`,
+      `Duplicate source filenames were found. Each input image needs a unique filename stem: ${duplicates.join(', ')}`,
     );
   }
 }

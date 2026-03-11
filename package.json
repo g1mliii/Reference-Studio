@@ -1,7 +1,7 @@
 {
-  "name": "car-replacement-studio",
+  "name": "reference-studio",
   "version": "0.1.0",
-  "description": "macOS desktop app for Gemini-powered model car reference replacement runs.",
+  "description": "macOS desktop app for Gemini-powered reference-based image generation workflows.",
   "author": "Subaigsuri",
   "type": "module",
   "main": "src/main/index.js",
@@ -10,11 +10,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder --mac dmg zip --arm64"
+    "dist": "electron-builder --mac dmg zip --arm64",
+    "dist:github": "electron-builder --mac dmg zip --arm64 --publish never -c.publish.provider=github -c.publish.owner=$UPDATE_REPO_OWNER -c.publish.repo=$UPDATE_REPO_NAME",
+    "release:github": "electron-builder --mac dmg zip --arm64 --publish always -c.publish.provider=github -c.publish.owner=$UPDATE_REPO_OWNER -c.publish.repo=$UPDATE_REPO_NAME"
   },
   "dependencies": {
     "@google/genai": "^1.31.0",
-    "electron-log": "^5.4.1"
+    "electron-log": "^5.4.1",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "electron": "^37.2.0",
@@ -22,8 +25,8 @@
     "vitest": "^3.2.4"
   },
   "build": {
-    "appId": "com.subaigsuri.carreplacementstudio",
-    "productName": "Car Replacement Studio",
+    "appId": "com.subaigsuri.referencestudio",
+    "productName": "Reference Studio",
     "files": [
       "src/**/*",
       "package.json"

@@ -5,6 +5,7 @@ const state = {
   carsDir: '',
   outputDir: '',
   apiKeyDraft: '',
+  updateStatus: null,
   carFilesPage: {
     items: [],
     page: 1,
@@ -51,7 +52,34 @@ const els = {
   saveSettingsButton: document.querySelector('#save-settings-button'),
   clearApiKeyButton: document.querySelector('#clear-api-key-button'),
   settingsStatus: document.querySelector('#settings-status'),
+  updateOwnerInput: document.querySelector('#update-owner-input'),
+  updateRepoInput: document.querySelector('#update-repo-input'),
+  updateAutoCheckInput: document.querySelector('#update-auto-check-input'),
+  updateStatusBadge: document.querySelector('#update-status-badge'),
+  updateCurrentVersion: document.querySelector('#update-current-version'),
+  updateFeedStatus: document.querySelector('#update-feed-status'),
+  updateStatusCopy: document.querySelector('#update-status-copy'),
+  checkUpdatesButton: document.querySelector('#check-updates-button'),
+  installUpdateButton: document.querySelector('#install-update-button'),
 };
+
+function defaultUpdateStatus() {
+  return {
+    currentVersion: '0.1.0',
+    repoOwner: '',
+    repoName: '',
+    autoCheck: true,
+    isPackaged: false,
+    configured: false,
+    canInstall: false,
+    state: 'disabled',
+    latestVersion: '',
+    progressPercent: 0,
+    lastCheckedAt: null,
+    error: null,
+    message: 'Add a GitHub owner and repo to enable app updates.',
+  };
+}
 
 function addLog(message) {
   state.logs.unshift({
@@ -104,6 +132,77 @@ function renderLogs() {
       `,
     )
     .join('');
+}
+
+function updateBadgeCopy(status) {
+  switch (status.state) {
+    case 'configured':
+      return 'Ready';
+    case 'checking':
+      return 'Checking';
+    case 'available':
+    case 'downloading':
+      return 'Downloading';
+    case 'downloaded':
+      return 'Ready To Install';
+    case 'not-available':
+      return 'Up To Date';
+    case 'installing':
+      return 'Installing';
+    case 'error':
+      return 'Update Error';
+    case 'unsupported':
+      return 'Packaged Only';
+    default:
+      return 'Not Configured';
+  }
+}
+
+function updateBadgeClass(status) {
+  switch (status.state) {
+    case 'configured':
+    case 'checking':
+    case 'available':
+    case 'downloading':
+    case 'installing':
+      return 'active';
+    case 'downloaded':
+    case 'not-available':
+      return 'saved';
+    case 'error':
+    case 'unsupported':
+      return 'warning';
+    default:
+      return '';
+  }
+}
+
+function renderUpdatePanel() {
+  const status = state.updateStatus || defaultUpdateStatus();
+  const badgeClass = updateBadgeClass(status);
+
+  els.updateStatusBadge.textContent = updateBadgeCopy(status);
+  els.updateStatusBadge.className = `status-badge${badgeClass ? ` ${badgeClass}` : ''}`;
+  els.updateCurrentVersion.textContent = status.currentVersion || '0.1.0';
+  els.updateFeedStatus.textContent =
+    status.configured && status.repoOwner && status.repoName
+      ? `${status.repoOwner}/${status.repoName}`
+      : 'Not configured';
+
+  let statusCopy = status.message || 'Add a GitHub owner and repo to enable app updates.';
+  if (status.latestVersion && !statusCopy.includes(status.latestVersion)) {
+    statusCopy += ` Latest version: ${status.latestVersion}.`;
+  }
+  if (status.lastCheckedAt) {
+    statusCopy += ` Last checked ${formatTimestamp(status.lastCheckedAt)}.`;
+  }
+  els.updateStatusCopy.textContent = statusCopy;
+
+  els.checkUpdatesButton.disabled =
+    !status.isPackaged ||
+    !status.configured ||
+    ['checking', 'downloading', 'installing'].includes(status.state);
+  els.installUpdateButton.disabled = !status.canInstall;
 }
 
 function renderJobs() {
@@ -238,8 +337,8 @@ function renderCarsList() {
   const carFiles = page.items || [];
   if (!page.total) {
     els.carsList.innerHTML =
-      '<div class="empty-state">Choose a cars folder to see each car filename here.</div>';
-    els.carsCountPill.textContent = '0 cars';
+      '<div class="empty-state">Choose a source folder to see each input filename here.</div>';
+    els.carsCountPill.textContent = '0 images';
     els.carsPageLabel.textContent = 'Page 1 of 1';
     els.carsPrevButton.disabled = true;
     els.carsNextButton.disabled = true;
@@ -255,7 +354,7 @@ function renderCarsList() {
       `,
     )
     .join('');
-  els.carsCountPill.textContent = `${page.total} ${page.total === 1 ? 'car' : 'cars'}`;
+  els.carsCountPill.textContent = `${page.total} ${page.total === 1 ? 'image' : 'images'}`;
   els.carsPageLabel.textContent = `Page ${page.page} of ${page.totalPages}`;
   els.carsPrevButton.disabled = page.page <= 1;
   els.carsNextButton.disabled = page.page >= page.totalPages;
@@ -278,6 +377,10 @@ function populateSettingsForm() {
   els.modelInput.value = settings?.model || '';
   els.searchEnabledInput.checked = Boolean(settings?.searchEnabled);
   els.promptInput.value = settings?.prompt || '';
+  els.updateOwnerInput.value = settings?.updateRepoOwner || '';
+  els.updateRepoInput.value = settings?.updateRepoName || '';
+  els.updateAutoCheckInput.checked =
+    typeof settings?.updateAutoCheck === 'boolean' ? settings.updateAutoCheck : true;
   els.clearApiKeyButton.disabled = !settings?.hasApiKey;
 }
 
@@ -288,6 +391,7 @@ function renderAll() {
   renderJobs();
   renderReferenceList();
   renderCarsList();
+  renderUpdatePanel();
   populateSettingsForm();
   els.carsDirInput.value = state.carsDir;
   els.outputDirInput.value = state.outputDir;
@@ -316,6 +420,11 @@ async function reloadJobs() {
   renderJobs();
 }
 
+async function reloadUpdateStatus() {
+  state.updateStatus = await window.carStudioAPI.loadUpdateStatus();
+  renderUpdatePanel();
+}
+
 async function saveSettings() {
   try {
     els.settingsStatus.textContent = 'Saving...';
@@ -324,7 +433,11 @@ async function saveSettings() {
       model: els.modelInput.value.trim(),
       searchEnabled: els.searchEnabledInput.checked,
       prompt: els.promptInput.value,
+      updateRepoOwner: els.updateOwnerInput.value.trim(),
+      updateRepoName: els.updateRepoInput.value.trim(),
+      updateAutoCheck: els.updateAutoCheckInput.checked,
     });
+    await reloadUpdateStatus();
     els.settingsStatus.textContent = state.apiKeyDraft.trim()
       ? 'Advanced settings saved. Click Save API Key to persist the pasted key.'
       : 'Saved locally on this Mac.';
@@ -369,7 +482,7 @@ async function chooseDirectory(target) {
     try {
       await loadCarsPage(1);
     } catch (error) {
-      addLog(`Failed to scan cars folder: ${error.message}`);
+      addLog(`Failed to scan source folder: ${error.message}`);
       state.carFilesPage = {
         items: [],
         page: 1,
@@ -441,13 +554,35 @@ async function clearApiKey() {
   }
 }
 
+async function checkForUpdates() {
+  try {
+    els.settingsStatus.textContent = 'Checking for updates...';
+    state.updateStatus = await window.carStudioAPI.checkForUpdates();
+    renderUpdatePanel();
+    els.settingsStatus.textContent = state.updateStatus.message;
+  } catch (error) {
+    els.settingsStatus.textContent = error.message;
+    addLog(`Update check failed: ${error.message}`);
+  }
+}
+
+async function installUpdate() {
+  try {
+    els.settingsStatus.textContent = 'Installing downloaded update...';
+    await window.carStudioAPI.installUpdate();
+  } catch (error) {
+    els.settingsStatus.textContent = error.message;
+    addLog(`Update install failed: ${error.message}`);
+  }
+}
+
 function selectedRunMode() {
   return document.querySelector('input[name="run-mode"]:checked').value;
 }
 
 async function startRun() {
   if (!state.carsDir || !state.outputDir) {
-    els.runStatus.textContent = 'Choose both a Cars folder and an Output folder first.';
+    els.runStatus.textContent = 'Choose both a Source folder and an Output folder first.';
     return;
   }
 
@@ -535,6 +670,8 @@ function bindEvents() {
   els.chooseReferencesButton.addEventListener('click', chooseReferences);
   els.saveSettingsButton.addEventListener('click', saveSettings);
   els.clearApiKeyButton.addEventListener('click', clearApiKey);
+  els.checkUpdatesButton.addEventListener('click', checkForUpdates);
+  els.installUpdateButton.addEventListener('click', installUpdate);
 
   window.carStudioAPI.onRunEvent((payload) => {
     if (payload.kind === 'job-progress' || payload.kind === 'job-log') {
@@ -549,11 +686,25 @@ function bindEvents() {
       reloadJobs();
     }
   });
+
+  window.carStudioAPI.onUpdateEvent((payload) => {
+    const previousState = state.updateStatus?.state;
+    state.updateStatus = payload;
+    renderUpdatePanel();
+
+    if (
+      payload.state !== previousState &&
+      ['checking', 'downloaded', 'not-available', 'error', 'installing'].includes(payload.state)
+    ) {
+      addLog(`Updater: ${payload.message}`);
+    }
+  });
 }
 
 async function bootstrap() {
   bindEvents();
   await reloadSettings();
+  await reloadUpdateStatus();
   await reloadJobs();
   renderCarsList();
   renderLogs();

@@ -339,6 +339,16 @@ textarea {
   color: var(--success);
 }
 
+.status-badge.active {
+  background: rgba(177, 77, 40, 0.14);
+  color: var(--accent-dark);
+}
+
+.status-badge.warning {
+  background: rgba(141, 100, 32, 0.16);
+  color: var(--warning);
+}
+
 .pill {
   padding: 6px 10px;
   border-radius: 999px;
