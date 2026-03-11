@@ -128,6 +128,20 @@ textarea {
   overflow: auto;
 }
 
+.content,
+.panel-grid > *,
+.lower-grid > *,
+.settings-grid > *,
+.run-preview-grid > *,
+.card,
+.preview-box,
+.log-output,
+.jobs-list,
+.file-list,
+.reference-list {
+  min-width: 0;
+}
+
 .tab-panel {
   display: none;
   gap: 24px;
@@ -294,6 +308,8 @@ textarea {
   gap: 20px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .status-list div:last-child {
@@ -303,6 +319,10 @@ textarea {
 .status-list dd {
   margin: 0;
   text-align: right;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .card-heading {
@@ -382,12 +402,36 @@ textarea {
 
 .log-entry {
   padding: 12px 14px;
+  overflow: hidden;
 }
 
 .log-entry p,
 .job-card p,
 .reference-list li {
   margin: 0;
+}
+
+.log-message,
+.status-message,
+.subtle-copy,
+.job-card p,
+.job-card header strong,
+.job-card .job-meta span,
+.file-row strong,
+.reference-list strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.log-message,
+.status-message {
+  white-space: pre-wrap;
+}
+
+.status-message {
+  overflow: auto;
 }
 
 .log-entry time {

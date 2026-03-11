@@ -1,33 +1,44 @@
+import {
+  DEFAULT_UPDATE_REPO_NAME,
+  DEFAULT_UPDATE_REPO_OWNER,
+} from '../../shared/constants.js';
+
 function now() {
   return new Date().toISOString();
-}
-
-function trim(value) {
-  return String(value || '').trim();
 }
 
 function baseStatus(app) {
   return {
     currentVersion: app.getVersion(),
-    repoOwner: '',
-    repoName: '',
+    repoOwner: DEFAULT_UPDATE_REPO_OWNER,
+    repoName: DEFAULT_UPDATE_REPO_NAME,
     autoCheck: true,
     isPackaged: app.isPackaged,
-    configured: false,
+    configured: app.isPackaged,
     canInstall: false,
-    state: app.isPackaged ? 'disabled' : 'unsupported',
+    state: app.isPackaged ? 'configured' : 'unsupported',
     latestVersion: '',
     progressPercent: 0,
     lastCheckedAt: null,
     error: null,
     message: app.isPackaged
-      ? 'Add a GitHub owner and repo to enable app updates.'
+      ? `Ready to check ${DEFAULT_UPDATE_REPO_OWNER}/${DEFAULT_UPDATE_REPO_NAME} on GitHub Releases.`
       : 'Update checks only run from the packaged app build.',
   };
 }
 
 function versionFromInfo(info) {
   return info?.version || info?.tag || '';
+}
+
+function hasUpdater(updater) {
+  return Boolean(
+    updater &&
+      typeof updater.on === 'function' &&
+      typeof updater.checkForUpdates === 'function' &&
+      typeof updater.quitAndInstall === 'function' &&
+      typeof updater.setFeedURL === 'function',
+  );
 }
 
 export class UpdateService {
@@ -39,6 +50,20 @@ export class UpdateService {
     this.status = baseStatus(app);
     this.feedKey = '';
     this.launchCheckStarted = false;
+    this.updaterAvailable = hasUpdater(updater);
+
+    if (!this.updaterAvailable) {
+      this.status = {
+        ...this.status,
+        configured: false,
+        canInstall: false,
+        state: app.isPackaged ? 'disabled' : 'unsupported',
+        message: app.isPackaged
+          ? 'App updates are unavailable in this build.'
+          : 'Update checks only run from the packaged app build.',
+      };
+      return;
+    }
 
     this.updater.autoDownload = true;
     this.updater.autoInstallOnAppQuit = true;
@@ -52,8 +77,8 @@ export class UpdateService {
   }
 
   async configure(settings) {
-    const repoOwner = trim(settings.updateRepoOwner);
-    const repoName = trim(settings.updateRepoName);
+    const repoOwner = DEFAULT_UPDATE_REPO_OWNER;
+    const repoName = DEFAULT_UPDATE_REPO_NAME;
     const autoCheck =
       typeof settings.updateAutoCheck === 'boolean' ? settings.updateAutoCheck : true;
 
@@ -71,25 +96,25 @@ export class UpdateService {
       lastCheckedAt: null,
     };
 
+    if (!this.updaterAvailable) {
+      this.status = {
+        ...nextStatus,
+        configured: false,
+        state: this.app.isPackaged ? 'disabled' : 'unsupported',
+        message: this.app.isPackaged
+          ? 'App updates are unavailable in this build.'
+          : 'Update checks only run from the packaged app build.',
+      };
+      this.#emitStatus();
+      return this.getStatus();
+    }
+
     if (!this.app.isPackaged) {
       this.status = {
         ...nextStatus,
         configured: false,
         state: 'unsupported',
         message: 'Update checks only run from the packaged app build.',
-      };
-      this.#emitStatus();
-      return this.getStatus();
-    }
-
-    if (!repoOwner || !repoName) {
-      this.feedKey = '';
-      this.launchCheckStarted = false;
-      this.status = {
-        ...nextStatus,
-        configured: false,
-        state: 'disabled',
-        message: 'Add a GitHub owner and repo to enable app updates.',
       };
       this.#emitStatus();
       return this.getStatus();
@@ -159,7 +184,7 @@ export class UpdateService {
       this.status = {
         ...this.status,
         state: 'disabled',
-        message: 'Save a GitHub owner and repo first.',
+        message: 'App updates are unavailable in this build.',
       };
       this.#emitStatus();
       return this.getStatus();
@@ -189,6 +214,10 @@ export class UpdateService {
   }
 
   installUpdateAndRestart() {
+    if (!this.updaterAvailable) {
+      throw new Error('App updates are unavailable in this build.');
+    }
+
     if (!this.status.canInstall) {
       throw new Error('No downloaded update is ready to install yet.');
     }

@@ -48,12 +48,11 @@ const els = {
   referenceList: document.querySelector('#reference-list'),
   modelInput: document.querySelector('#model-input'),
   searchEnabledInput: document.querySelector('#search-enabled-input'),
+  localTestModeInput: document.querySelector('#local-test-mode-input'),
   promptInput: document.querySelector('#prompt-input'),
   saveSettingsButton: document.querySelector('#save-settings-button'),
   clearApiKeyButton: document.querySelector('#clear-api-key-button'),
   settingsStatus: document.querySelector('#settings-status'),
-  updateOwnerInput: document.querySelector('#update-owner-input'),
-  updateRepoInput: document.querySelector('#update-repo-input'),
   updateAutoCheckInput: document.querySelector('#update-auto-check-input'),
   updateStatusBadge: document.querySelector('#update-status-badge'),
   updateCurrentVersion: document.querySelector('#update-current-version'),
@@ -66,18 +65,18 @@ const els = {
 function defaultUpdateStatus() {
   return {
     currentVersion: '0.1.0',
-    repoOwner: '',
-    repoName: '',
+    repoOwner: 'g1mliii',
+    repoName: 'Reference-Studio',
     autoCheck: true,
     isPackaged: false,
     configured: false,
     canInstall: false,
-    state: 'disabled',
+    state: 'unsupported',
     latestVersion: '',
     progressPercent: 0,
     lastCheckedAt: null,
     error: null,
-    message: 'Add a GitHub owner and repo to enable app updates.',
+    message: 'Update checks only run from the packaged app build.',
   };
 }
 
@@ -108,12 +107,20 @@ function renderSettingsSummary() {
   const referenceCount = settings?.referenceFiles?.length || 0;
   const projectedOutputs = referenceCount * (state.carFilesPage?.total || 0);
   els.statusApiKey.textContent = settings?.hasApiKey
-    ? `Saved (${settings.apiKeyPreview})`
-    : 'Not saved';
+    ? settings?.localTestMode
+      ? `Saved (${settings.apiKeyPreview}) but not used in Local Test Mode`
+      : `Saved (${settings.apiKeyPreview})`
+    : settings?.localTestMode
+      ? 'Not required in Local Test Mode'
+      : 'Not saved';
   els.statusReferences.textContent = `${referenceCount} saved`;
   els.statusOutputs.textContent = String(projectedOutputs);
   els.statusModel.textContent = settings?.model || 'gemini-3-pro-image-preview';
-  els.statusSearch.textContent = settings?.searchEnabled ? 'Enabled' : 'Disabled';
+  els.statusSearch.textContent = settings?.localTestMode
+    ? 'Off in Local Test Mode'
+    : settings?.searchEnabled
+      ? 'Enabled'
+      : 'Disabled';
 }
 
 function renderLogs() {
@@ -127,7 +134,7 @@ function renderLogs() {
       (entry) => `
         <article class="log-entry">
           <time>${formatTimestamp(entry.timestamp)}</time>
-          <p>${escapeHtml(entry.message)}</p>
+          <p class="log-message">${escapeHtml(entry.message)}</p>
         </article>
       `,
     )
@@ -153,8 +160,10 @@ function updateBadgeCopy(status) {
       return 'Update Error';
     case 'unsupported':
       return 'Packaged Only';
+    case 'disabled':
+      return 'Unavailable';
     default:
-      return 'Not Configured';
+      return 'Built In';
   }
 }
 
@@ -184,12 +193,9 @@ function renderUpdatePanel() {
   els.updateStatusBadge.textContent = updateBadgeCopy(status);
   els.updateStatusBadge.className = `status-badge${badgeClass ? ` ${badgeClass}` : ''}`;
   els.updateCurrentVersion.textContent = status.currentVersion || '0.1.0';
-  els.updateFeedStatus.textContent =
-    status.configured && status.repoOwner && status.repoName
-      ? `${status.repoOwner}/${status.repoName}`
-      : 'Not configured';
+  els.updateFeedStatus.textContent = `${status.repoOwner}/${status.repoName}`;
 
-  let statusCopy = status.message || 'Add a GitHub owner and repo to enable app updates.';
+  let statusCopy = status.message || 'Automatic updates are built into this app.';
   if (status.latestVersion && !statusCopy.includes(status.latestVersion)) {
     statusCopy += ` Latest version: ${status.latestVersion}.`;
   }
@@ -376,9 +382,8 @@ function populateSettingsForm() {
   }
   els.modelInput.value = settings?.model || '';
   els.searchEnabledInput.checked = Boolean(settings?.searchEnabled);
+  els.localTestModeInput.checked = Boolean(settings?.localTestMode);
   els.promptInput.value = settings?.prompt || '';
-  els.updateOwnerInput.value = settings?.updateRepoOwner || '';
-  els.updateRepoInput.value = settings?.updateRepoName || '';
   els.updateAutoCheckInput.checked =
     typeof settings?.updateAutoCheck === 'boolean' ? settings.updateAutoCheck : true;
   els.clearApiKeyButton.disabled = !settings?.hasApiKey;
@@ -432,9 +437,8 @@ async function saveSettings() {
       referenceFiles: state.settings?.referenceFiles || [],
       model: els.modelInput.value.trim(),
       searchEnabled: els.searchEnabledInput.checked,
+      localTestMode: els.localTestModeInput.checked,
       prompt: els.promptInput.value,
-      updateRepoOwner: els.updateOwnerInput.value.trim(),
-      updateRepoName: els.updateRepoInput.value.trim(),
       updateAutoCheck: els.updateAutoCheckInput.checked,
     });
     await reloadUpdateStatus();
@@ -526,6 +530,7 @@ async function chooseReferences() {
       referenceFiles,
       model: els.modelInput.value.trim(),
       searchEnabled: els.searchEnabledInput.checked,
+      localTestMode: els.localTestModeInput.checked,
       prompt: els.promptInput.value,
     });
     els.settingsStatus.textContent = `Saved ${referenceFiles.length} reference image${referenceFiles.length === 1 ? '' : 's'}.`;

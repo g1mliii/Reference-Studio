@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
@@ -20,12 +21,23 @@ import { listImagePathsPage } from '../shared/files.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 
 let mainWindow;
 let settingsStore;
 let jobStore;
 let runManager;
 let updateService;
+
+function loadAutoUpdater() {
+  try {
+    const updaterModule = require('electron-updater');
+    return updaterModule?.autoUpdater || updaterModule?.default?.autoUpdater || null;
+  } catch (error) {
+    log.error('Failed to load electron-updater', error);
+    return null;
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -103,7 +115,7 @@ async function chooseReferences() {
 app.whenReady().then(async () => {
   log.initialize();
 
-  const { autoUpdater } = await import('electron-updater');
+  const autoUpdater = loadAutoUpdater();
 
   settingsStore = new SettingsStore({
     userDataPath: app.getPath('userData'),

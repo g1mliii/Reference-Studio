@@ -61,9 +61,8 @@ describe('SettingsStore', () => {
 
     expect(settings.hasApiKey).toBe(false);
     expect(settings.referenceFiles).toEqual([]);
-    expect(settings.updateRepoOwner).toBe('');
-    expect(settings.updateRepoName).toBe('');
     expect(settings.updateAutoCheck).toBe(true);
+    expect(settings.localTestMode).toBe(false);
   });
 
   it('saves and decrypts the api key', async () => {
@@ -78,17 +77,15 @@ describe('SettingsStore', () => {
       prompt: 'Prompt',
       model: 'gemini-3-pro-image-preview',
       searchEnabled: true,
-      updateRepoOwner: 'subaigsuri',
-      updateRepoName: 'reference-studio',
+      localTestMode: true,
       updateAutoCheck: false,
     });
 
     expect(await store.getApiKey()).toBe('abc123456789');
     const settings = await store.load();
     expect(settings.apiKeyPreview).toBe('abc1••••6789');
-    expect(settings.updateRepoOwner).toBe('subaigsuri');
-    expect(settings.updateRepoName).toBe('reference-studio');
     expect(settings.updateAutoCheck).toBe(false);
+    expect(settings.localTestMode).toBe(true);
   });
 
   it('falls back to the plain-text copy if secure decrypt fails later', async () => {

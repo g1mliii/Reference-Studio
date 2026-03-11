@@ -1,4 +1,6 @@
 export const APP_NAME = 'Reference Studio';
+export const DEFAULT_UPDATE_REPO_OWNER = 'g1mliii';
+export const DEFAULT_UPDATE_REPO_NAME = 'Reference-Studio';
 export const DEFAULT_MODEL = 'gemini-3-pro-image-preview';
 export const DEFAULT_SEARCH_ENABLED = true;
 export const DEFAULT_IMAGE_CONFIG = Object.freeze({

@@ -101,3 +101,100 @@ describe('RunManager batch preparation', () => {
     expect(submittedRequest.error).toBeNull();
   });
 });
+
+describe('RunManager local test mode', () => {
+  it('runs sync jobs without an api key and writes placeholder outputs', async () => {
+    const rootDirectory = await makeTempWorkspace();
+    const carsDir = path.join(rootDirectory, 'cars');
+    const refsDir = path.join(rootDirectory, 'refs');
+    const outputDir = path.join(rootDirectory, 'out');
+
+    const carPath = path.join(carsDir, 'blue,911-gt3-rs.png');
+    const referencePath = path.join(refsDir, 'studio-front.png');
+
+    await fs.writeFile(carPath, Buffer.from('good-car'));
+    await fs.writeFile(referencePath, Buffer.from('ref'));
+
+    const settingsStore = {
+      load: vi.fn().mockResolvedValue({
+        referenceFiles: [referencePath],
+        model: 'gemini-3-pro-image-preview',
+        searchEnabled: true,
+        localTestMode: true,
+        prompt: 'prompt',
+      }),
+      getApiKey: vi.fn().mockResolvedValue(''),
+    };
+    const jobStore = new JobStore({ userDataPath: rootDirectory });
+    const runManager = new RunManager({
+      settingsStore,
+      jobStore,
+    });
+
+    const job = await runManager.startRun({
+      mode: 'sync',
+      carsDir,
+      outputDir,
+      window: null,
+    });
+
+    expect(job.state).toBe(JOB_STATES.COMPLETED);
+    expect(job.summary.completed).toBe(1);
+    expect(await fs.readFile(job.requests[0].outputFile)).not.toHaveLength(0);
+  });
+
+  it('simulates batch progress and per-file failures in local test mode', async () => {
+    const rootDirectory = await makeTempWorkspace();
+    const carsDir = path.join(rootDirectory, 'cars');
+    const refsDir = path.join(rootDirectory, 'refs');
+    const outputDir = path.join(rootDirectory, 'out');
+
+    const goodCarPath = path.join(carsDir, 'blue,911-gt3-rs.png');
+    const badCarPath = path.join(carsDir, 'mock-fail,911-gt3-rs.png');
+    const referencePath = path.join(refsDir, 'studio-front.png');
+
+    await fs.writeFile(goodCarPath, Buffer.from('good-car'));
+    await fs.writeFile(badCarPath, Buffer.from('bad-car'));
+    await fs.writeFile(referencePath, Buffer.from('ref'));
+
+    const settingsStore = {
+      load: vi.fn().mockResolvedValue({
+        referenceFiles: [referencePath],
+        model: 'gemini-3-pro-image-preview',
+        searchEnabled: true,
+        localTestMode: true,
+        prompt: 'prompt',
+      }),
+      getApiKey: vi.fn().mockResolvedValue(''),
+    };
+    const jobStore = new JobStore({ userDataPath: rootDirectory });
+    const runManager = new RunManager({
+      settingsStore,
+      jobStore,
+    });
+
+    const submittedJob = await runManager.startRun({
+      mode: 'batch',
+      carsDir,
+      outputDir,
+      window: null,
+    });
+
+    expect(submittedJob.state).toBe(JOB_STATES.SUBMITTED);
+    expect(submittedJob.remoteJobName).toContain('mock-batch/');
+
+    const processingJob = await runManager.refreshBatch({
+      jobId: submittedJob.id,
+      window: null,
+    });
+    expect(processingJob.state).toBe(JOB_STATES.PROCESSING);
+
+    const completedJob = await runManager.refreshBatch({
+      jobId: submittedJob.id,
+      window: null,
+    });
+    expect(completedJob.state).toBe(JOB_STATES.PARTIAL);
+    expect(completedJob.summary.completed).toBe(1);
+    expect(completedJob.summary.failed).toBe(1);
+  });
+});

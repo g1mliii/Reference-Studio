@@ -10,9 +10,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder --mac dmg zip --arm64",
-    "dist:github": "electron-builder --mac dmg zip --arm64 --publish never -c.publish.provider=github -c.publish.owner=$UPDATE_REPO_OWNER -c.publish.repo=$UPDATE_REPO_NAME",
-    "release:github": "electron-builder --mac dmg zip --arm64 --publish always -c.publish.provider=github -c.publish.owner=$UPDATE_REPO_OWNER -c.publish.repo=$UPDATE_REPO_NAME"
+    "dist": "node scripts/macos-release.mjs prepare",
+    "dist:status": "node scripts/macos-release.mjs status",
+    "dist:finalize": "node scripts/macos-release.mjs finalize",
+    "dist:verify": "node scripts/verify-macos-release.mjs",
+    "dist:github": "node scripts/macos-release.mjs finalize --github",
+    "release:github": "node scripts/macos-release.mjs prepare --github",
+    "release:github:status": "node scripts/macos-release.mjs status",
+    "release:github:finalize": "node scripts/macos-release.mjs finalize --publish"
   },
   "dependencies": {
     "@google/genai": "^1.31.0",
@@ -36,6 +41,11 @@
     },
     "mac": {
       "category": "public.app-category.graphics-design",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": false,
       "target": [
         "dmg",
         "zip"

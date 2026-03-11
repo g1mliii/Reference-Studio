@@ -21,6 +21,12 @@ import {
 } from '../../shared/jobs.js';
 import { JOB_STATES, RUN_EVENT_CHANNEL } from '../../shared/constants.js';
 
+const MOCK_FAILURE_TOKEN = 'mock-fail';
+const MOCK_OUTPUT_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAY0lEQVR4nO3PQQ3AIADAQMDwBOAVLTOxhmS5U9BH5z7P4Jt1O+BPzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzAq+oGAB4tQ6pQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 function now() {
   return new Date().toISOString();
 }
@@ -84,7 +90,7 @@ export class RunManager {
     const settings = await this.settingsStore.load();
     const apiKey = await this.settingsStore.getApiKey();
 
-    if (!apiKey) {
+    if (!settings.localTestMode && !apiKey) {
       throw new Error('Save a Gemini API key in Settings before running a job.');
     }
 
@@ -110,9 +116,11 @@ export class RunManager {
       outputDir,
       model: settings.model,
       searchEnabled: settings.searchEnabled,
+      localTestMode: Boolean(settings.localTestMode),
       prompt: settings.prompt,
       remoteJobName: null,
       remoteState: null,
+      mockBatchPollCount: 0,
       requests,
       summary: summarizeRequests(requests),
     };
@@ -125,6 +133,14 @@ export class RunManager {
         kind: 'job-started',
         job,
       });
+
+      if (settings.localTestMode) {
+        if (mode === 'sync') {
+          return await this.#runSyncMock(job, { window });
+        }
+
+        return await this.#submitBatchMock(job, { window });
+      }
 
       if (mode === 'sync') {
         return await this.#runSync(job, { apiKey, settings, window });
@@ -214,6 +230,10 @@ export class RunManager {
       throw new Error('This batch job has no remote Gemini batch id.');
     }
 
+    if (job.localTestMode) {
+      return this.#refreshMockBatch(job, { window });
+    }
+
     const apiKey = await this.settingsStore.getApiKey();
     if (!apiKey) {
       throw new Error('Save a Gemini API key in Settings before refreshing a batch job.');
@@ -298,6 +318,11 @@ export class RunManager {
             status: 'skipped',
           });
           completed += 1;
+          await this.#checkpointRequests(job.id, requests, {
+            state: JOB_STATES.PROCESSING,
+            remoteState: remoteBatch.state,
+            pausedFromState: null,
+          });
           continue;
         }
 
@@ -307,6 +332,11 @@ export class RunManager {
             error: responseItem.error.message || 'Unknown Gemini batch error.',
           });
           completed += 1;
+          await this.#checkpointRequests(job.id, requests, {
+            state: JOB_STATES.PROCESSING,
+            remoteState: remoteBatch.state,
+            pausedFromState: null,
+          });
           continue;
         }
 
@@ -317,6 +347,11 @@ export class RunManager {
             error: 'Gemini batch response returned no image data.',
           });
           completed += 1;
+          await this.#checkpointRequests(job.id, requests, {
+            state: JOB_STATES.PROCESSING,
+            remoteState: remoteBatch.state,
+            pausedFromState: null,
+          });
           continue;
         }
 
@@ -334,6 +369,11 @@ export class RunManager {
           completed,
           total: inlinedResponses.length,
           message: `Saved ${fileName(request.outputFile)}`,
+        });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.PROCESSING,
+          remoteState: remoteBatch.state,
+          pausedFromState: null,
         });
       }
 
@@ -397,6 +437,10 @@ export class RunManager {
           total: requests.length,
           message: `Skipped existing ${fileName(request.outputFile)} (${fileName(request.carFile)} x ${fileName(request.referenceFile)})`,
         });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.RUNNING,
+          pausedFromState: null,
+        });
         continue;
       }
 
@@ -450,6 +494,10 @@ export class RunManager {
           total: requests.length,
           message: `Saved ${fileName(request.outputFile)} from ${fileName(request.carFile)} with ${fileName(request.referenceFile)}`,
         });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.RUNNING,
+          pausedFromState: null,
+        });
       } catch (error) {
         const message = serializeError(error);
         log.error('Sync request failed', request.key, message);
@@ -465,7 +513,102 @@ export class RunManager {
           total: requests.length,
           message: `Failed ${fileName(request.outputFile)} from ${fileName(request.carFile)} with ${fileName(request.referenceFile)}: ${message}`,
         });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.RUNNING,
+          pausedFromState: null,
+        });
       }
+    }
+
+    const failedCount = requests.filter((request) => request.status === 'failed').length;
+    const nextJob = await this.jobStore.patch(job.id, {
+      requests,
+      summary: summarizeRequests(requests),
+      state: failedCount ? JOB_STATES.PARTIAL : JOB_STATES.COMPLETED,
+      pausedFromState: null,
+    });
+
+    sendRunEvent(window, {
+      kind: 'job-updated',
+      job: nextJob,
+    });
+
+    return nextJob;
+  }
+
+  async #runSyncMock(job, { window }) {
+    let requests = [...job.requests];
+    let completed = 0;
+
+    const runningJob = await this.jobStore.patch(job.id, {
+      state: JOB_STATES.RUNNING,
+    });
+
+    sendRunEvent(window, {
+      kind: 'job-updated',
+      job: runningJob,
+    });
+
+    for (const request of requests) {
+      await this.#waitIfPaused(job.id);
+
+      if (await pathExists(request.outputFile)) {
+        requests = patchRequest(requests, request.key, {
+          status: 'skipped',
+        });
+        completed += 1;
+        sendRunEvent(window, {
+          kind: 'job-progress',
+          jobId: job.id,
+          completed,
+          total: requests.length,
+          message: `Skipped existing ${fileName(request.outputFile)} in Local Test Mode`,
+        });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.RUNNING,
+          pausedFromState: null,
+        });
+        continue;
+      }
+
+      if (this.#shouldMockFail(request)) {
+        const message = this.#mockFailureMessage();
+        requests = patchRequest(requests, request.key, {
+          status: 'failed',
+          error: message,
+        });
+        completed += 1;
+        sendRunEvent(window, {
+          kind: 'job-progress',
+          jobId: job.id,
+          completed,
+          total: requests.length,
+          message: `Failed ${fileName(request.outputFile)} in Local Test Mode: ${message}`,
+        });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.RUNNING,
+          pausedFromState: null,
+        });
+        continue;
+      }
+
+      await this.#writeMockOutput(request.outputFile);
+      requests = patchRequest(requests, request.key, {
+        status: 'completed',
+        error: null,
+      });
+      completed += 1;
+      sendRunEvent(window, {
+        kind: 'job-progress',
+        jobId: job.id,
+        completed,
+        total: requests.length,
+        message: `Saved ${fileName(request.outputFile)} in Local Test Mode`,
+      });
+      await this.#checkpointRequests(job.id, requests, {
+        state: JOB_STATES.RUNNING,
+        pausedFromState: null,
+      });
     }
 
     const failedCount = requests.filter((request) => request.status === 'failed').length;
@@ -630,6 +773,63 @@ export class RunManager {
     return nextJob;
   }
 
+  async #submitBatchMock(job, { window }) {
+    let requests = [...job.requests];
+    let completed = 0;
+
+    const runningJob = await this.jobStore.patch(job.id, {
+      state: JOB_STATES.RUNNING,
+    });
+
+    sendRunEvent(window, {
+      kind: 'job-updated',
+      job: runningJob,
+    });
+
+    for (const request of requests) {
+      await this.#waitIfPaused(job.id);
+
+      if (await pathExists(request.outputFile)) {
+        requests = patchRequest(requests, request.key, {
+          status: 'skipped',
+        });
+        completed += 1;
+        continue;
+      }
+
+      requests = patchRequest(requests, request.key, {
+        status: 'submitted',
+        error: null,
+      });
+      completed += 1;
+
+      sendRunEvent(window, {
+        kind: 'job-progress',
+        jobId: job.id,
+        completed,
+        total: job.requests.length,
+        message: `Queued ${fileName(request.outputFile)} for Local Test Mode batch`,
+      });
+    }
+
+    const nextJob = await this.jobStore.patch(job.id, {
+      requests,
+      summary: summarizeRequests(requests),
+      state: JOB_STATES.SUBMITTED,
+      remoteJobName: `mock-batch/${job.id}`,
+      remoteState: 'JOB_STATE_PENDING',
+      mockBatchPollCount: 0,
+      pausedFromState: null,
+    });
+
+    sendRunEvent(window, {
+      kind: 'job-updated',
+      job: nextJob,
+    });
+
+    return nextJob;
+  }
+
   async #getUpload({
     gemini,
     filePath,
@@ -666,6 +866,148 @@ export class RunManager {
 
   #formatFileRole(fileRole) {
     return fileRole.charAt(0).toUpperCase() + fileRole.slice(1);
+  }
+
+  async #refreshMockBatch(job, { window }) {
+    if (this.activeJobId && this.activeJobId !== job.id) {
+      throw new Error('Another local job is active. Finish or pause that job first.');
+    }
+    this.activeJobId = job.id;
+
+    sendRunEvent(window, {
+      kind: 'job-log',
+      jobId: job.id,
+      message: 'Refreshing Local Test Mode batch status...',
+    });
+
+    try {
+      const pollCount = Number(job.mockBatchPollCount || 0);
+
+      if (pollCount < 1) {
+        const processingJob = await this.jobStore.patch(job.id, {
+          state: JOB_STATES.PROCESSING,
+          remoteState: 'JOB_STATE_RUNNING',
+          mockBatchPollCount: pollCount + 1,
+          pausedFromState: null,
+        });
+
+        sendRunEvent(window, {
+          kind: 'job-updated',
+          job: processingJob,
+        });
+
+        return processingJob;
+      }
+
+      let requests = [...job.requests];
+      let completed = 0;
+
+      for (const request of requests) {
+        await this.#waitIfPaused(job.id);
+
+        if (['completed', 'skipped', 'failed'].includes(request.status)) {
+          completed += 1;
+          continue;
+        }
+
+        if (await pathExists(request.outputFile)) {
+          requests = patchRequest(requests, request.key, {
+            status: 'skipped',
+          });
+          completed += 1;
+          await this.#checkpointRequests(job.id, requests, {
+            state: JOB_STATES.PROCESSING,
+            remoteState: 'JOB_STATE_RUNNING',
+            pausedFromState: null,
+          });
+          continue;
+        }
+
+        if (this.#shouldMockFail(request)) {
+          const message = this.#mockFailureMessage();
+          requests = patchRequest(requests, request.key, {
+            status: 'failed',
+            error: message,
+          });
+          completed += 1;
+          sendRunEvent(window, {
+            kind: 'job-progress',
+            jobId: job.id,
+            completed,
+            total: requests.length,
+            message: `Failed ${fileName(request.outputFile)} in Local Test Mode batch: ${message}`,
+          });
+          await this.#checkpointRequests(job.id, requests, {
+            state: JOB_STATES.PROCESSING,
+            remoteState: 'JOB_STATE_RUNNING',
+            pausedFromState: null,
+          });
+          continue;
+        }
+
+        await this.#writeMockOutput(request.outputFile);
+        requests = patchRequest(requests, request.key, {
+          status: 'completed',
+          error: null,
+        });
+        completed += 1;
+        sendRunEvent(window, {
+          kind: 'job-progress',
+          jobId: job.id,
+          completed,
+          total: requests.length,
+          message: `Saved ${fileName(request.outputFile)} in Local Test Mode batch`,
+        });
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.PROCESSING,
+          remoteState: 'JOB_STATE_RUNNING',
+          pausedFromState: null,
+        });
+      }
+
+      const failedCount = requests.filter((request) => request.status === 'failed').length;
+      const nextJob = await this.jobStore.patch(job.id, {
+        requests,
+        summary: summarizeRequests(requests),
+        state: failedCount ? JOB_STATES.PARTIAL : JOB_STATES.COMPLETED,
+        remoteState: 'JOB_STATE_SUCCEEDED',
+        mockBatchPollCount: pollCount + 1,
+        pausedFromState: null,
+      });
+
+      sendRunEvent(window, {
+        kind: 'job-updated',
+        job: nextJob,
+      });
+
+      return nextJob;
+    } finally {
+      this.pausedJobs.delete(job.id);
+      this.activeJobId = null;
+    }
+  }
+
+  #shouldMockFail(request) {
+    return [request.carFile, request.referenceFile, request.outputFile, request.key]
+      .filter(Boolean)
+      .some((value) => value.toLowerCase().includes(MOCK_FAILURE_TOKEN));
+  }
+
+  #mockFailureMessage() {
+    return `Local Test Mode simulated a failure because a filename contains "${MOCK_FAILURE_TOKEN}".`;
+  }
+
+  async #writeMockOutput(outputFile) {
+    await ensureDirectory(path.dirname(outputFile));
+    await fs.writeFile(outputFile, MOCK_OUTPUT_PNG);
+  }
+
+  async #checkpointRequests(jobId, requests, patch = {}) {
+    return this.jobStore.patch(jobId, {
+      requests,
+      summary: summarizeRequests(requests),
+      ...patch,
+    });
   }
 
   async #waitIfPaused(jobId) {

@@ -78,7 +78,7 @@
 
               <div class="cta-row">
                 <button id="start-run-button" class="primary-button">Start Run</button>
-                <p id="run-status" class="muted-status">Ready when your folders and settings are in place.</p>
+                <p id="run-status" class="muted-status status-message">Ready when your folders and settings are in place.</p>
               </div>
 
               <div class="run-preview-grid">
@@ -188,19 +188,11 @@
             <div class="card">
               <div class="card-heading compact">
                 <h3>App Updates</h3>
-                <span id="update-status-badge" class="status-badge">Not Configured</span>
+                <span id="update-status-badge" class="status-badge">Built In</span>
               </div>
               <p class="subtle-copy">
-                Point this build at a public GitHub Releases repo so packaged apps can check on launch and download updates automatically.
+                This build is already pointed at the official public GitHub Releases feed. Users only need to leave update checks on and install when a download is ready.
               </p>
-              <label class="field">
-                <span>GitHub Owner</span>
-                <input id="update-owner-input" type="text" placeholder="your-github-name" />
-              </label>
-              <label class="field">
-                <span>Repository</span>
-                <input id="update-repo-input" type="text" placeholder="reference-studio" />
-              </label>
               <label class="checkbox-row">
                 <input id="update-auto-check-input" type="checkbox" checked />
                 <span>Check GitHub Releases on launch</span>
@@ -212,11 +204,11 @@
                 </div>
                 <div>
                   <dt>Release Feed</dt>
-                  <dd id="update-feed-status">Not configured</dd>
+                  <dd id="update-feed-status">g1mliii/Reference-Studio</dd>
                 </div>
               </dl>
-              <p id="update-status-copy" class="muted-status">
-                Add a GitHub owner and repo, save settings, then check for updates.
+              <p id="update-status-copy" class="muted-status status-message">
+                Automatic updates are built into this app.
               </p>
               <div class="inline-actions">
                 <button id="check-updates-button" class="secondary-button">Check for Updates</button>
@@ -236,13 +228,17 @@
                 <input id="search-enabled-input" type="checkbox" checked />
                 <span>Enable Google Web Search grounding</span>
               </label>
+              <label class="checkbox-row">
+                <input id="local-test-mode-input" type="checkbox" />
+                <span>Local Test Mode (no Gemini calls, no API cost)</span>
+              </label>
               <label class="field">
                 <span>Prompt</span>
                 <textarea id="prompt-input" rows="10"></textarea>
               </label>
               <div class="cta-row">
                 <button id="save-settings-button" class="primary-button">Save Settings</button>
-                <p id="settings-status" class="muted-status">Changes save locally on this Mac.</p>
+                <p id="settings-status" class="muted-status status-message">Changes save locally on this Mac.</p>
               </div>
             </div>
           </div>
