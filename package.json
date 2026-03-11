@@ -1,0 +1,43 @@
+{
+  "name": "car-replacement-studio",
+  "version": "0.1.0",
+  "description": "macOS desktop app for Gemini-powered model car reference replacement runs.",
+  "author": "Subaigsuri",
+  "type": "module",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac dmg zip --arm64"
+  },
+  "dependencies": {
+    "@google/genai": "^1.31.0",
+    "electron-log": "^5.4.1"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.subaigsuri.carreplacementstudio",
+    "productName": "Car Replacement Studio",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
+  }
+}

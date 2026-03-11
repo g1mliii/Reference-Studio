@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Car Replacement Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">Gemini Desktop Workflow</p>
+          <h1>Car Replacement Studio</h1>
+          <p class="brand-copy">
+            Turn a folder of car shots into reference-matched outputs with one saved setup.
+          </p>
+        </div>
+
+        <nav class="nav-tabs">
+          <button class="nav-tab active" data-tab="run">Run Jobs</button>
+          <button class="nav-tab" data-tab="settings">Settings</button>
+        </nav>
+
+        <div class="notice-panel">
+          <h2>macOS Note</h2>
+          <p>
+            Unsigned builds may need a one-time <strong>right-click &gt; Open</strong> flow on
+            first launch when shared to other Macs.
+          </p>
+        </div>
+      </aside>
+
+      <main class="content">
+        <section id="tab-run" class="tab-panel active">
+          <header class="panel-header">
+            <div>
+              <p class="eyebrow">Main Run Screen</p>
+              <h2>Generate Loose Output Files</h2>
+            </div>
+            <button id="refresh-jobs-button" class="ghost-button">Refresh Jobs</button>
+          </header>
+
+          <div class="panel-grid">
+            <div class="card primary-card">
+              <h3>Source Folders</h3>
+              <label class="field">
+                <span>Cars Folder</span>
+                <div class="path-picker">
+                  <input id="cars-dir-input" type="text" readonly placeholder="Choose the folder of car images" />
+                  <button id="choose-cars-dir-button" class="secondary-button">Choose</button>
+                </div>
+              </label>
+
+              <label class="field">
+                <span>Output Folder</span>
+                <div class="path-picker">
+                  <input id="output-dir-input" type="text" readonly placeholder="Choose the output folder" />
+                  <button id="choose-output-dir-button" class="secondary-button">Choose</button>
+                </div>
+              </label>
+
+              <fieldset class="mode-toggle">
+                <legend>Run Mode</legend>
+                <label>
+                  <input type="radio" name="run-mode" value="sync" checked />
+                  <span>Sync</span>
+                </label>
+                <label>
+                  <input type="radio" name="run-mode" value="batch" />
+                  <span>Batch</span>
+                </label>
+              </fieldset>
+
+              <div class="cta-row">
+                <button id="start-run-button" class="primary-button">Start Run</button>
+                <p id="run-status" class="muted-status">Ready when your folders and settings are in place.</p>
+              </div>
+
+              <div class="run-preview-grid">
+                <div class="preview-box">
+                  <div class="card-heading compact">
+                    <h4>Cars In Folder</h4>
+                    <span id="cars-count-pill" class="pill">0 cars</span>
+                  </div>
+                  <div id="cars-list" class="file-list"></div>
+                  <div class="pager">
+                    <button id="cars-prev-button" class="ghost-button" type="button">Previous</button>
+                    <span id="cars-page-label" class="pager-label">Page 1 of 1</span>
+                    <button id="cars-next-button" class="ghost-button" type="button">Next</button>
+                  </div>
+                </div>
+
+                <div class="preview-box">
+                  <div class="card-heading compact">
+                    <h4>Saved References</h4>
+                    <span id="references-count-pill" class="pill">0 refs</span>
+                  </div>
+                  <div id="run-reference-list" class="file-list"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card status-card">
+              <h3>Current Setup</h3>
+              <dl class="status-list">
+                <div>
+                  <dt>API Key</dt>
+                  <dd id="status-api-key">Not saved</dd>
+                </div>
+                <div>
+                  <dt>Reference Images</dt>
+                  <dd id="status-references">0 saved</dd>
+                </div>
+                <div>
+                  <dt>Projected Outputs</dt>
+                  <dd id="status-outputs">0</dd>
+                </div>
+                <div>
+                  <dt>Model</dt>
+                  <dd id="status-model">gemini-3-pro-image-preview</dd>
+                </div>
+                <div>
+                  <dt>Search</dt>
+                  <dd id="status-search">Enabled</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <div class="panel-grid lower-grid">
+            <div class="card logs-card">
+              <div class="card-heading">
+                <h3>Live Progress</h3>
+                <span class="pill">Run log</span>
+              </div>
+              <div id="log-output" class="log-output"></div>
+            </div>
+
+            <div class="card jobs-card">
+              <div class="card-heading">
+                <h3>Saved Jobs</h3>
+                <span class="pill">Sync and batch history</span>
+              </div>
+              <div id="jobs-list" class="jobs-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-settings" class="tab-panel">
+          <header class="panel-header">
+            <div>
+              <p class="eyebrow">First Launch Setup</p>
+              <h2>Saved App Settings</h2>
+            </div>
+          </header>
+
+          <div class="settings-grid">
+            <div class="card">
+              <div class="card-heading compact">
+                <h3>API Key</h3>
+                <span id="api-key-indicator" class="status-badge">Not Saved</span>
+              </div>
+              <label class="field">
+                <span>Gemini API Key</span>
+                <input id="api-key-input" type="password" placeholder="Paste a Gemini API key to save locally" />
+              </label>
+              <p id="api-key-saved-label" class="subtle-copy"></p>
+              <div class="inline-actions">
+                <button id="save-api-key-button" class="primary-button">Save API Key</button>
+                <button id="clear-api-key-button" class="ghost-button">Remove Saved Key</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <h3>Reference Images</h3>
+              <p class="subtle-copy">
+                Save one or more reference images once. Every run will generate one output per car per reference.
+              </p>
+              <button id="choose-references-button" class="secondary-button">Choose Reference Images</button>
+              <ul id="reference-list" class="reference-list"></ul>
+            </div>
+
+            <div class="card">
+              <h3>Advanced</h3>
+              <label class="field">
+                <span>Model</span>
+                <input id="model-input" type="text" />
+              </label>
+              <label class="checkbox-row">
+                <input id="search-enabled-input" type="checkbox" checked />
+                <span>Enable Google Web Search grounding</span>
+              </label>
+              <label class="field">
+                <span>Prompt</span>
+                <textarea id="prompt-input" rows="10"></textarea>
+              </label>
+              <div class="cta-row">
+                <button id="save-settings-button" class="primary-button">Save Settings</button>
+                <p id="settings-status" class="muted-status">Changes save locally on this Mac.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>
