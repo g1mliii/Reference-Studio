@@ -339,14 +339,18 @@ export class GeminiService {
   }
 
   async downloadFile({ fileName, downloadPath }) {
+    const { createWriteStream } = await import('node:fs');
+    const { pipeline } = await import('node:stream/promises');
+    const { Readable } = await import('node:stream');
+
     const url = `https://generativelanguage.googleapis.com/v1beta/${fileName}:download?alt=media&key=${this.apiKey}`;
     const response = await fetch(url);
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       throw new Error(`Batch result download failed (${response.status}): ${text.slice(0, 200)}`);
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(downloadPath, buffer);
+    const writeStream = createWriteStream(downloadPath);
+    await pipeline(Readable.fromWeb(response.body), writeStream);
   }
 
   async saveGeneratedFile({ buffer, outputFile }) {

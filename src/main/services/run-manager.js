@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
+import readline from 'node:readline';
 
 import log from 'electron-log/main.js';
 
@@ -1066,17 +1068,13 @@ export class RunManager {
       remoteBatch.dest?.inlined_responses ||
       [];
 
-    let responseItems = inlinedResponses;
-    if (!responseItems.length && remoteBatch.dest?.fileName) {
-      responseItems = await this.#downloadBatchResultFile({
-        gemini,
-        job,
-        fileName: remoteBatch.dest.fileName,
-      });
+    // For file-based results, stream line by line to avoid memory issues with large batches
+    if (!inlinedResponses.length && remoteBatch.dest?.fileName) {
+      return this.#processStreamingBatchResults({ gemini, job, window, remoteBatch });
     }
 
-    log.info('processBatchResults: responseItems.length =', responseItems.length);
-    if (!responseItems.length) {
+    log.info('processBatchResults: responseItems.length =', inlinedResponses.length);
+    if (!inlinedResponses.length) {
       throw new Error(
         `The batch finished but no results were returned. remoteBatch.dest = ${JSON.stringify(remoteBatch.dest)}`,
       );
@@ -1085,7 +1083,7 @@ export class RunManager {
     let requests = [...job.requests];
     let completed = 0;
 
-    for (const responseItem of responseItems) {
+    for (const responseItem of inlinedResponses) {
       await this.#waitIfPaused(job.id);
       this.#throwIfCancelled(job.id);
 
@@ -1174,7 +1172,7 @@ export class RunManager {
         kind: 'job-progress',
         jobId: job.id,
         completed,
-        total: responseItems.length,
+        total: inlinedResponses.length,
         message: `Saved ${fileName(request.outputFile)}`,
       });
       await this.#checkpointRequests(job.id, requests, {
@@ -1188,6 +1186,149 @@ export class RunManager {
       });
     }
 
+    return requests;
+  }
+
+  async #processStreamingBatchResults({ gemini, job, window, remoteBatch }) {
+    const downloadPath = await this.#downloadBatchResultFile({
+      gemini,
+      job,
+      fileName: remoteBatch.dest.fileName,
+    });
+
+    let requests = [...job.requests];
+    let completed = 0;
+    let lineCount = 0;
+
+    const rl = readline.createInterface({
+      input: createReadStream(downloadPath),
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      await this.#waitIfPaused(job.id);
+      this.#throwIfCancelled(job.id);
+
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      let responseItem;
+      try {
+        responseItem = JSON.parse(trimmed);
+      } catch (parseError) {
+        log.warn('processBatchResults: failed to parse line', lineCount, parseError.message);
+        lineCount += 1;
+        continue;
+      }
+      lineCount += 1;
+
+      const key =
+        responseItem.metadata?.requestKey ||
+        responseItem.key ||
+        responseItem.metadata?.key ||
+        null;
+
+      if (!key) {
+        log.warn('processBatchResults: responseItem has no key, skipping. keys present:', Object.keys(responseItem));
+        continue;
+      }
+
+      const request = requests.find((item) => item.key === key);
+      if (!request) {
+        log.warn('processBatchResults: no matching request for key', key);
+        continue;
+      }
+
+      if (await pathExists(request.outputFile)) {
+        requests = patchRequest(requests, key, { status: 'skipped' });
+        completed += 1;
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.PROCESSING,
+          remoteState: remoteBatch.state,
+          activityMessage: null,
+          retryAttempt: null,
+          retryScheduledAt: null,
+          lastRateLimitError: null,
+          pausedFromState: null,
+        });
+        continue;
+      }
+
+      if (responseItem.error) {
+        requests = patchRequest(requests, key, {
+          status: 'failed',
+          error: responseItem.error.message || serializeError(responseItem.error) || 'Unknown Gemini batch error.',
+        });
+        completed += 1;
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.PROCESSING,
+          remoteState: remoteBatch.state,
+          activityMessage: null,
+          retryAttempt: null,
+          retryScheduledAt: null,
+          lastRateLimitError: null,
+          pausedFromState: null,
+        });
+        continue;
+      }
+
+      const image = extractFirstInlineImage(responseItem.response);
+      if (!image) {
+        requests = patchRequest(requests, key, {
+          status: 'failed',
+          error: 'Gemini batch response returned no image data.',
+        });
+        completed += 1;
+        await this.#checkpointRequests(job.id, requests, {
+          state: JOB_STATES.PROCESSING,
+          remoteState: remoteBatch.state,
+          activityMessage: null,
+          retryAttempt: null,
+          retryScheduledAt: null,
+          lastRateLimitError: null,
+          pausedFromState: null,
+        });
+        continue;
+      }
+
+      // Use original output path, fall back to Downloads folder if path is missing/inaccessible
+      let outputFile = request.outputFile;
+      const outputDir = path.dirname(outputFile);
+      const dirExists = await pathExists(outputDir);
+      if (!dirExists) {
+        const downloadsDir = path.join(
+          process.env.HOME || process.env.USERPROFILE || '',
+          'Downloads',
+          'Reference Studio Batch',
+        );
+        outputFile = path.join(downloadsDir, path.basename(outputFile));
+        log.warn(`processBatchResults: output dir missing, falling back to ${downloadsDir}`);
+      }
+
+      await ensureDirectory(path.dirname(outputFile));
+      await fs.writeFile(outputFile, Buffer.from(image.data, 'base64'));
+      requests = patchRequest(requests, key, { status: 'completed', error: null });
+      completed += 1;
+
+      sendRunEvent(window, {
+        kind: 'job-progress',
+        jobId: job.id,
+        completed,
+        total: job.requests.length,
+        message: `Saved ${fileName(outputFile)}`,
+      });
+      await this.#checkpointRequests(job.id, requests, {
+        state: JOB_STATES.PROCESSING,
+        remoteState: remoteBatch.state,
+        activityMessage: null,
+        retryAttempt: null,
+        retryScheduledAt: null,
+        lastRateLimitError: null,
+        pausedFromState: null,
+      });
+    }
+
+    log.info('processBatchResults: processed', lineCount, 'lines,', completed, 'results handled');
     return requests;
   }
 
@@ -1205,12 +1346,7 @@ export class RunManager {
       jobState: JOB_STATES.PROCESSING,
       operationLabel: 'Downloading batch results',
     });
-    const content = await fs.readFile(downloadPath, 'utf8');
-    return content
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+    return downloadPath;
   }
 
   async #refreshMockBatch(job, { window, silent = false }) {
