@@ -1,6 +1,6 @@
 {
   "name": "reference-studio",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "macOS desktop app for Gemini-powered reference-based image generation workflows.",
   "author": "Subaigsuri",
   "type": "module",

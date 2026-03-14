@@ -219,6 +219,7 @@ export function extractFirstInlineImage(response) {
 export class GeminiService {
   constructor({ apiKey, model = DEFAULT_MODEL }) {
     this.model = model;
+    this.apiKey = apiKey;
     this.ai = new GoogleGenAI({ apiKey });
   }
 
@@ -338,10 +339,14 @@ export class GeminiService {
   }
 
   async downloadFile({ fileName, downloadPath }) {
-    await this.ai.files.download({
-      file: fileName,
-      downloadPath,
-    });
+    const url = `https://generativelanguage.googleapis.com/v1beta/${fileName}:download?alt=media&key=${this.apiKey}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Batch result download failed (${response.status}): ${text.slice(0, 200)}`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await fs.writeFile(downloadPath, buffer);
   }
 
   async saveGeneratedFile({ buffer, outputFile }) {

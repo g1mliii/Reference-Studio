@@ -66,6 +66,8 @@ const els = {
   updateStatusCopy: document.querySelector('#update-status-copy'),
   checkUpdatesButton: document.querySelector('#check-updates-button'),
   installUpdateButton: document.querySelector('#install-update-button'),
+  recoverBatchesButton: document.querySelector('#recover-batches-button'),
+  recoverBatchesStatus: document.querySelector('#recover-batches-status'),
 };
 
 function defaultUpdateStatus() {
@@ -181,11 +183,11 @@ function totalForJob(job) {
 }
 
 function canRefreshJob(job) {
-  return (
-    job.mode === 'batch' &&
-    job.remoteJobName &&
-    ['submitted', 'processing'].includes(job.state)
-  );
+  if (job.mode !== 'batch' || !job.remoteJobName) return false;
+  if (['submitted', 'processing'].includes(job.state)) return true;
+  // Allow retry on failed batch jobs that have a result file ready to download
+  if (job.state === 'failed' && job.remoteResultFileName) return true;
+  return false;
 }
 
 function canPauseJob(job) {
@@ -772,6 +774,33 @@ async function refreshBatch(jobId, { silent = false } = {}) {
   }
 }
 
+async function recoverFailedBatches() {
+  const eligible = state.jobs.filter(
+    (job) => job.mode === 'batch' && job.state === 'failed' && job.remoteResultFileName,
+  );
+  if (!eligible.length) {
+    els.recoverBatchesStatus.textContent = 'No failed batch jobs with available results found.';
+    return;
+  }
+  els.recoverBatchesButton.disabled = true;
+  els.recoverBatchesStatus.textContent = `Recovering ${eligible.length} job(s)...`;
+  let recovered = 0;
+  let failed = 0;
+  for (const job of eligible) {
+    try {
+      await refreshBatch(job.id, { silent: false });
+      recovered++;
+    } catch {
+      failed++;
+    }
+  }
+  els.recoverBatchesButton.disabled = false;
+  els.recoverBatchesStatus.textContent = failed
+    ? `Done. Recovered: ${recovered}, failed: ${failed}. Check logs for details.`
+    : `Done. Recovered ${recovered} job(s).`;
+  await reloadJobs();
+}
+
 async function pauseJob(jobId) {
   try {
     els.runStatus.textContent = `Pausing job ${jobId}...`;
@@ -942,6 +971,7 @@ function bindEvents() {
   els.clearApiKeyButton.addEventListener('click', clearApiKey);
   els.checkUpdatesButton.addEventListener('click', checkForUpdates);
   els.installUpdateButton.addEventListener('click', installUpdate);
+  els.recoverBatchesButton.addEventListener('click', recoverFailedBatches);
 
   window.carStudioAPI.onRunEvent((payload) => {
     if ((payload.kind === 'job-progress' && shouldLogProgress(payload)) || payload.kind === 'job-log') {
