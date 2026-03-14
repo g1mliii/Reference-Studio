@@ -10,15 +10,20 @@ const projectDir = path.resolve(__dirname, '..');
 const packageJsonPath = path.join(projectDir, 'package.json');
 const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf8'));
 const productName = packageJson.build?.productName || packageJson.productName || packageJson.name;
+const artifactProductName = productName.replace(/\s+/g, '-');
 const version = packageJson.version;
 const arch = 'arm64';
 const distDir = path.join(projectDir, 'dist');
 const appDir = path.join(distDir, `mac-${arch}`);
 const appPath = path.join(appDir, `${productName}.app`);
+const appResourcesDir = path.join(appPath, 'Contents', 'Resources');
+const appUpdateConfigPath = path.join(appResourcesDir, 'app-update.yml');
 const notarizationDir = path.join(distDir, 'notarization');
 const notaryArchivePath = path.join(notarizationDir, `${productName}-${version}-${arch}-notary.zip`);
 const statePath = path.join(distDir, 'macos-release-state.json');
 const builderBin = path.join(projectDir, 'node_modules', '.bin', 'electron-builder');
+const defaultPublishConfig = packageJson.build?.publish || {};
+const macEntitlementsPath = path.join(projectDir, packageJson.build?.mac?.entitlements || '');
 
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
@@ -46,7 +51,7 @@ function ensureEnv(name, fallback) {
 }
 
 function artifactBaseName(ext) {
-  return `${productName}-${version}-${arch}.${ext}`;
+  return `${artifactProductName}-${version}-${arch}.${ext}`;
 }
 
 function artifactPath(ext) {
@@ -115,6 +120,20 @@ async function cleanupArtifactOutputs() {
   }
 }
 
+async function restoreSubmittedAppArchive(state) {
+  if (!(await exists(state.notaryArchivePath))) {
+    fail(`Accepted notary archive is missing at ${state.notaryArchivePath}.`);
+  }
+
+  await removeIfExists(appPath);
+  await fs.mkdir(appDir, { recursive: true });
+  run('/usr/bin/ditto', ['-x', '-k', state.notaryArchivePath, appDir]);
+
+  if (!(await exists(appPath))) {
+    fail(`Restored app bundle not found at ${appPath} after extracting ${state.notaryArchivePath}.`);
+  }
+}
+
 function notaryInfoArgs(submissionId, keychainProfile) {
   return [
     'notarytool',
@@ -127,13 +146,36 @@ function notaryInfoArgs(submissionId, keychainProfile) {
   ];
 }
 
+function submitNotaryArgs(filePath, keychainProfile, { wait = false } = {}) {
+  return [
+    'notarytool',
+    'submit',
+    filePath,
+    '--keychain-profile',
+    keychainProfile,
+    '--output-format',
+    'json',
+    ...(wait ? ['--wait'] : []),
+  ];
+}
+
 function trimTagPlaceholder(uploadUrl) {
   return uploadUrl.replace(/\{.*$/, '');
 }
 
 function releaseRepoFromState(state, publishRequested) {
-  const repoOwner = (process.env.UPDATE_REPO_OWNER || state.repoOwner || '').trim();
-  const repoName = (process.env.UPDATE_REPO_NAME || state.repoName || '').trim();
+  const repoOwner = (
+    process.env.UPDATE_REPO_OWNER ||
+    state.repoOwner ||
+    defaultPublishConfig.owner ||
+    ''
+  ).trim();
+  const repoName = (
+    process.env.UPDATE_REPO_NAME ||
+    state.repoName ||
+    defaultPublishConfig.repo ||
+    ''
+  ).trim();
 
   if (publishRequested && (!repoOwner || !repoName)) {
     fail('Publishing requires UPDATE_REPO_OWNER and UPDATE_REPO_NAME.');
@@ -142,10 +184,75 @@ function releaseRepoFromState(state, publishRequested) {
   return { repoOwner, repoName };
 }
 
+function updaterCacheDirName() {
+  return `${String(packageJson.name || productName)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .toLowerCase()}-updater`;
+}
+
+function buildAppUpdateYaml({ repoOwner, repoName }) {
+  return [
+    'provider: github',
+    `owner: ${repoOwner}`,
+    `repo: ${repoName}`,
+    'private: false',
+    `updaterCacheDirName: ${updaterCacheDirName()}`,
+    '',
+  ].join('\n');
+}
+
+async function writeEmbeddedAppUpdateConfig({ repoOwner, repoName }) {
+  if (!repoOwner || !repoName) {
+    return;
+  }
+
+  await fs.mkdir(appResourcesDir, { recursive: true });
+  await fs.writeFile(appUpdateConfigPath, buildAppUpdateYaml({ repoOwner, repoName }), 'utf8');
+}
+
+function detectSigningIdentity() {
+  const result = spawnSync('/usr/bin/codesign', ['-dv', '--verbose=4', appPath], {
+    cwd: projectDir,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.status !== 0) {
+    const detail = `${result.stdout || ''}${result.stderr || ''}`.trim();
+    fail(detail || `codesign exited with code ${result.status}`);
+  }
+  const output = `${result.stdout || ''}${result.stderr || ''}`;
+  const match = output.match(/^Authority=(Developer ID Application:[^\n]+)$/m);
+  if (!match) {
+    fail(`Could not determine the current Developer ID signing identity from ${appPath}.`);
+  }
+
+  return match[1];
+}
+
+function resignAppBundle() {
+  if (!macEntitlementsPath) {
+    fail('No mac entitlements file is configured for re-signing.');
+  }
+
+  const identity = detectSigningIdentity();
+  run('/usr/bin/codesign', [
+    '--force',
+    '--sign',
+    identity,
+    '--timestamp',
+    '--options',
+    'runtime',
+    '--entitlements',
+    macEntitlementsPath,
+    appPath,
+  ]);
+  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath]);
+}
+
 async function prepare() {
   const keychainProfile = ensureEnv('APPLE_KEYCHAIN_PROFILE');
-  const repoOwner = (process.env.UPDATE_REPO_OWNER || '').trim();
-  const repoName = (process.env.UPDATE_REPO_NAME || '').trim();
+  const repoOwner = (process.env.UPDATE_REPO_OWNER || defaultPublishConfig.owner || '').trim();
+  const repoName = (process.env.UPDATE_REPO_NAME || defaultPublishConfig.repo || '').trim();
   if (flags.has('--github') && (!repoOwner || !repoName)) {
     fail('release:github requires UPDATE_REPO_OWNER and UPDATE_REPO_NAME.');
   }
@@ -160,6 +267,9 @@ async function prepare() {
   if (!(await exists(appPath))) {
     fail(`Signed app bundle not found at ${appPath}.`);
   }
+
+  await writeEmbeddedAppUpdateConfig({ repoOwner, repoName });
+  resignAppBundle();
 
   log('Creating notarization archive...');
   run('/usr/bin/ditto', ['-c', '-k', '--keepParent', appPath, notaryArchivePath]);
@@ -218,6 +328,13 @@ async function prepare() {
 async function fetchNotaryInfo(state) {
   const keychainProfile = ensureEnv('APPLE_KEYCHAIN_PROFILE', state.keychainProfile);
   const output = run('/usr/bin/xcrun', notaryInfoArgs(state.submissionId, keychainProfile), {
+    capture: true,
+  });
+  return JSON.parse(output);
+}
+
+function submitForNotarization(filePath, keychainProfile, { wait = false } = {}) {
+  const output = run('/usr/bin/xcrun', submitNotaryArgs(filePath, keychainProfile, { wait }), {
     capture: true,
   });
   return JSON.parse(output);
@@ -411,10 +528,14 @@ async function finalize() {
   const currentState = await loadState();
   const publishRequested = flags.has('--publish');
   const { state, info } = await updateStateFromNotary(currentState);
+  const keychainProfile = ensureEnv('APPLE_KEYCHAIN_PROFILE', state.keychainProfile);
 
   if (info.status !== 'Accepted') {
     fail(`Cannot finalize while submission status is ${info.status}. Run "npm run dist:status" again later.`);
   }
+
+  log('Restoring the exact accepted app bundle from the notarized archive...');
+  await restoreSubmittedAppArchive(state);
 
   log('Stapling notarization ticket to the app...');
   run('/usr/bin/xcrun', ['stapler', 'staple', appPath]);
@@ -426,9 +547,17 @@ async function finalize() {
   run(builderBin, packagingArgs({ repoOwner, repoName }));
 
   const dmgPath = artifactPath('dmg');
+  let dmgStapled = false;
   if (await exists(dmgPath)) {
+    log('Submitting packaged DMG for notarization and waiting for Apple...');
+    const dmgSubmission = submitForNotarization(dmgPath, keychainProfile, { wait: true });
+    if ((dmgSubmission.status || '').toLowerCase() !== 'accepted') {
+      fail(`DMG notarization failed: ${JSON.stringify(dmgSubmission)}`);
+    }
+
     log('Stapling notarization ticket to the DMG...');
     run('/usr/bin/xcrun', ['stapler', 'staple', dmgPath]);
+    dmgStapled = true;
   }
 
   const artifacts = [
@@ -454,6 +583,8 @@ async function finalize() {
     repoOwner,
     repoName,
     artifacts: existingArtifacts,
+    dmgStapled,
+    dmgNotarizedAt: dmgStapled ? now() : null,
     phase: publishRequested ? 'publishing' : 'packaged',
     finalizedAt: now(),
   };

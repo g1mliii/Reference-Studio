@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('carStudioAPI', {
   refreshBatch: (payload) => ipcRenderer.invoke('runs:refresh-batch', payload),
   pauseJob: (payload) => ipcRenderer.invoke('runs:pause-job', payload),
   resumeJob: (payload) => ipcRenderer.invoke('runs:resume-job', payload),
+  cancelJob: (payload) => ipcRenderer.invoke('runs:cancel-job', payload),
   loadUpdateStatus: () => ipcRenderer.invoke('updates:status'),
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   installUpdate: () => ipcRenderer.invoke('updates:install'),

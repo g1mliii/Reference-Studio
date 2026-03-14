@@ -15,6 +15,10 @@ const state = {
   },
   logs: [],
 };
+const BATCH_POLL_INTERVAL_MS = 10000;
+const TERMINAL_JOB_STATES = new Set(['completed', 'partial', 'failed', 'cancelled']);
+let batchPollTimer = null;
+let batchPollInFlight = false;
 
 const els = {
   navTabs: Array.from(document.querySelectorAll('.nav-tab')),
@@ -31,6 +35,8 @@ const els = {
   statusOutputs: document.querySelector('#status-outputs'),
   statusModel: document.querySelector('#status-model'),
   statusSearch: document.querySelector('#status-search'),
+  activeJobPill: document.querySelector('#active-job-pill'),
+  activeJobPanel: document.querySelector('#active-job-panel'),
   carsCountPill: document.querySelector('#cars-count-pill'),
   referencesCountPill: document.querySelector('#references-count-pill'),
   carsList: document.querySelector('#cars-list'),
@@ -64,7 +70,7 @@ const els = {
 
 function defaultUpdateStatus() {
   return {
-    currentVersion: '0.1.0',
+    currentVersion: '0.1.4',
     repoOwner: 'g1mliii',
     repoName: 'Reference-Studio',
     autoCheck: true,
@@ -87,6 +93,28 @@ function addLog(message) {
   });
   state.logs = state.logs.slice(0, 80);
   renderLogs();
+}
+
+function sortJobs(jobs) {
+  return [...jobs].sort((left, right) =>
+    (right.updatedAt || '').localeCompare(left.updatedAt || ''),
+  );
+}
+
+function upsertJob(job) {
+  state.jobs = sortJobs([...state.jobs.filter((item) => item.id !== job.id), job]);
+}
+
+function findJob(jobId) {
+  return state.jobs.find((job) => job.id === jobId) || null;
+}
+
+function isActiveJob(job) {
+  return !TERMINAL_JOB_STATES.has(job.state);
+}
+
+function primaryActiveJob() {
+  return state.jobs.find(isActiveJob) || null;
 }
 
 function formatTimestamp(value) {
@@ -141,6 +169,176 @@ function renderLogs() {
     .join('');
 }
 
+function totalForJob(job) {
+  const summary = job.summary || {};
+  return (
+    (summary.pending || 0) +
+    (summary.submitted || 0) +
+    (summary.completed || 0) +
+    (summary.skipped || 0) +
+    (summary.failed || 0)
+  );
+}
+
+function canRefreshJob(job) {
+  return (
+    job.mode === 'batch' &&
+    job.remoteJobName &&
+    ['submitted', 'processing'].includes(job.state)
+  );
+}
+
+function canPauseJob(job) {
+  return ['running', 'processing'].includes(job.state);
+}
+
+function canResumeJob(job) {
+  return job.state === 'paused';
+}
+
+function canCancelJob(job) {
+  return ['running', 'processing', 'submitted', 'paused'].includes(job.state);
+}
+
+function jobStateClass(job) {
+  return job.state === 'partial' || job.state === 'failed'
+    ? 'partial'
+    : job.state === 'paused' || job.state === 'cancelled'
+      ? 'paused'
+      : '';
+}
+
+function renderJobActionButtons(job) {
+  return `
+    ${
+      canPauseJob(job)
+        ? `<button class="ghost-button pause-job-button" data-job-id="${escapeHtml(job.id)}">Pause</button>`
+        : ''
+    }
+    ${
+      canResumeJob(job)
+        ? `<button class="ghost-button resume-job-button" data-job-id="${escapeHtml(job.id)}">Resume</button>`
+        : ''
+    }
+    ${
+      canCancelJob(job)
+        ? `<button class="ghost-button cancel-job-button" data-job-id="${escapeHtml(job.id)}">Cancel</button>`
+        : ''
+    }
+    ${
+      canRefreshJob(job)
+        ? `<button class="ghost-button refresh-job-button" data-job-id="${escapeHtml(job.id)}">Refresh Batch</button>`
+        : ''
+    }
+  `;
+}
+
+function renderJobDetails(job) {
+  const summary = job.summary || {};
+  const total = totalForJob(job);
+  const activityMarkup = job.activityMessage
+    ? `<p class="job-note important">${escapeHtml(job.activityMessage)}</p>`
+    : '';
+  const retryMarkup = job.retryScheduledAt
+    ? `<p class="job-note">Next retry around ${formatTimestamp(job.retryScheduledAt)}.</p>`
+    : '';
+  const remoteIdMarkup =
+    job.mode === 'batch' && job.remoteJobName
+      ? `<p class="job-remote-id">Gemini batch id: ${escapeHtml(job.remoteJobName)}</p>`
+      : '';
+  const remoteStateMarkup =
+    job.mode === 'batch'
+      ? `<p>Remote state: ${escapeHtml(job.remoteState || 'pending')}</p>`
+      : '';
+  const pollingMarkup =
+    job.mode === 'batch' && ['submitted', 'processing'].includes(job.state)
+      ? '<p>Auto-polling every 10 seconds while this app is open.</p>'
+      : '';
+
+  return `
+    <div class="job-meta">
+      <span>${escapeHtml(job.mode.toUpperCase())}</span>
+      <span>${escapeHtml(job.model)}</span>
+    </div>
+    ${activityMarkup}
+    ${retryMarkup}
+    ${remoteIdMarkup}
+    ${remoteStateMarkup}
+    <p>Output folder: ${escapeHtml(nameFromPath(job.outputDir))}</p>
+    <p>
+      ${summary.completed || 0} completed, ${summary.skipped || 0} skipped,
+      ${summary.failed || 0} failed, ${total} total
+    </p>
+    ${pollingMarkup}
+  `;
+}
+
+function bindJobActionButtons() {
+  Array.from(document.querySelectorAll('.pause-job-button')).forEach((button) => {
+    if (button.dataset.bound === '1') {
+      return;
+    }
+    button.dataset.bound = '1';
+    button.addEventListener('click', async () => {
+      await pauseJob(button.dataset.jobId);
+    });
+  });
+
+  Array.from(document.querySelectorAll('.resume-job-button')).forEach((button) => {
+    if (button.dataset.bound === '1') {
+      return;
+    }
+    button.dataset.bound = '1';
+    button.addEventListener('click', async () => {
+      await resumeJob(button.dataset.jobId);
+    });
+  });
+
+  Array.from(document.querySelectorAll('.cancel-job-button')).forEach((button) => {
+    if (button.dataset.bound === '1') {
+      return;
+    }
+    button.dataset.bound = '1';
+    button.addEventListener('click', async () => {
+      await cancelJob(button.dataset.jobId);
+    });
+  });
+
+  Array.from(document.querySelectorAll('.refresh-job-button')).forEach((button) => {
+    if (button.dataset.bound === '1') {
+      return;
+    }
+    button.dataset.bound = '1';
+    button.addEventListener('click', async () => {
+      await refreshBatch(button.dataset.jobId);
+    });
+  });
+}
+
+function renderActiveJob() {
+  const job = primaryActiveJob();
+  els.activeJobPill.textContent = job ? job.state : 'Idle';
+
+  if (!job) {
+    els.activeJobPanel.innerHTML =
+      '<div class="empty-state">No active sync or batch job right now.</div>';
+    bindJobActionButtons();
+    return;
+  }
+
+  els.activeJobPanel.innerHTML = `
+    <div class="active-job-meta">
+      <strong>${escapeHtml(job.id)}</strong>
+      <span class="job-state ${jobStateClass(job)}">${escapeHtml(job.state)}</span>
+    </div>
+    ${renderJobDetails(job)}
+    <div class="inline-actions">
+      ${renderJobActionButtons(job)}
+    </div>
+  `;
+  bindJobActionButtons();
+}
+
 function updateBadgeCopy(status) {
   switch (status.state) {
     case 'configured':
@@ -192,7 +390,7 @@ function renderUpdatePanel() {
 
   els.updateStatusBadge.textContent = updateBadgeCopy(status);
   els.updateStatusBadge.className = `status-badge${badgeClass ? ` ${badgeClass}` : ''}`;
-  els.updateCurrentVersion.textContent = status.currentVersion || '0.1.0';
+  els.updateCurrentVersion.textContent = status.currentVersion || '0.1.4';
   els.updateFeedStatus.textContent = `${status.repoOwner}/${status.repoName}`;
 
   let statusCopy = status.message || 'Automatic updates are built into this app.';
@@ -214,90 +412,31 @@ function renderUpdatePanel() {
 function renderJobs() {
   if (!state.jobs.length) {
     els.jobsList.innerHTML = '<div class="empty-state">No jobs have been run yet.</div>';
+    bindJobActionButtons();
     return;
   }
 
   els.jobsList.innerHTML = state.jobs
     .map((job) => {
-      const summary = job.summary || {};
-      const total =
-        (summary.pending || 0) +
-        (summary.submitted || 0) +
-        (summary.completed || 0) +
-        (summary.skipped || 0) +
-        (summary.failed || 0);
-      const canRefresh =
-        job.mode === 'batch' &&
-        job.remoteJobName &&
-        ['submitted', 'processing', 'running'].includes(job.state);
-      const canPause = ['running', 'processing'].includes(job.state);
-      const canResume = job.state === 'paused';
-      const stateClass =
-        job.state === 'partial' || job.state === 'failed'
-          ? 'partial'
-          : job.state === 'paused'
-            ? 'paused'
-            : '';
-
       return `
         <article class="job-card">
           <header>
             <strong>${escapeHtml(job.id)}</strong>
-            <span class="job-state ${stateClass}">
+            <span class="job-state ${jobStateClass(job)}">
               ${escapeHtml(job.state)}
             </span>
           </header>
-          <div class="job-meta">
-            <span>${escapeHtml(job.mode.toUpperCase())}</span>
-            <span>${escapeHtml(job.model)}</span>
-          </div>
-          <p>Output folder: ${escapeHtml(nameFromPath(job.outputDir))}</p>
-          <p>
-            ${summary.completed || 0} completed, ${summary.skipped || 0} skipped,
-            ${summary.failed || 0} failed, ${total} total
-          </p>
+          ${renderJobDetails(job)}
           <div class="job-actions">
             <small>${job.updatedAt ? formatTimestamp(job.updatedAt) : 'Just now'}</small>
-            <div class="inline-actions">
-              ${
-                canPause
-                  ? `<button class="ghost-button pause-job-button" data-job-id="${escapeHtml(job.id)}">Pause</button>`
-                  : ''
-              }
-              ${
-                canResume
-                  ? `<button class="ghost-button resume-job-button" data-job-id="${escapeHtml(job.id)}">Resume</button>`
-                  : ''
-              }
-              ${
-                canRefresh
-                  ? `<button class="ghost-button refresh-job-button" data-job-id="${escapeHtml(job.id)}">Refresh Batch</button>`
-                  : ''
-              }
-            </div>
+            <div class="inline-actions">${renderJobActionButtons(job)}</div>
           </div>
         </article>
       `;
     })
     .join('');
 
-  Array.from(document.querySelectorAll('.pause-job-button')).forEach((button) => {
-    button.addEventListener('click', async () => {
-      await pauseJob(button.dataset.jobId);
-    });
-  });
-
-  Array.from(document.querySelectorAll('.resume-job-button')).forEach((button) => {
-    button.addEventListener('click', async () => {
-      await resumeJob(button.dataset.jobId);
-    });
-  });
-
-  Array.from(document.querySelectorAll('.refresh-job-button')).forEach((button) => {
-    button.addEventListener('click', async () => {
-      await refreshBatch(button.dataset.jobId);
-    });
-  });
+  bindJobActionButtons();
 }
 
 function renderReferenceList() {
@@ -394,6 +533,7 @@ function renderAll() {
   renderSettingsSummary();
   renderLogs();
   renderJobs();
+  renderActiveJob();
   renderReferenceList();
   renderCarsList();
   renderUpdatePanel();
@@ -421,8 +561,10 @@ async function reloadSettings() {
 }
 
 async function reloadJobs() {
-  state.jobs = await window.carStudioAPI.listJobs();
+  state.jobs = sortJobs(await window.carStudioAPI.listJobs());
   renderJobs();
+  renderActiveJob();
+  ensureBatchPolling();
 }
 
 async function reloadUpdateStatus() {
@@ -612,15 +754,21 @@ async function startRun() {
   }
 }
 
-async function refreshBatch(jobId) {
+async function refreshBatch(jobId, { silent = false } = {}) {
   try {
-    els.runStatus.textContent = `Refreshing batch ${jobId}...`;
-    const job = await window.carStudioAPI.refreshBatch({ jobId });
-    els.runStatus.textContent = `Batch ${job.id}: ${job.state}`;
+    if (!silent) {
+      els.runStatus.textContent = `Refreshing batch ${jobId}...`;
+    }
+    const job = await window.carStudioAPI.refreshBatch({ jobId, silent });
+    if (!silent) {
+      els.runStatus.textContent = `Batch ${job.id}: ${job.state}`;
+    }
     await reloadJobs();
   } catch (error) {
-    els.runStatus.textContent = error.message;
-    addLog(`Batch refresh failed: ${error.message}`);
+    if (!silent) {
+      els.runStatus.textContent = error.message;
+      addLog(`Batch refresh failed: ${error.message}`);
+    }
   }
 }
 
@@ -646,6 +794,123 @@ async function resumeJob(jobId) {
     els.runStatus.textContent = error.message;
     addLog(`Resume failed: ${error.message}`);
   }
+}
+
+async function cancelJob(jobId) {
+  if (!window.confirm(`Cancel job ${jobId}?`)) {
+    return;
+  }
+
+  try {
+    els.runStatus.textContent = `Cancelling job ${jobId}...`;
+    const job = await window.carStudioAPI.cancelJob({ jobId });
+    els.runStatus.textContent = `Job ${job.id}: ${job.state}`;
+    await reloadJobs();
+  } catch (error) {
+    els.runStatus.textContent = error.message;
+    addLog(`Cancel failed: ${error.message}`);
+  }
+}
+
+function shouldPollJob(job) {
+  return (
+    job.mode === 'batch' &&
+    job.remoteJobName &&
+    ['submitted', 'processing'].includes(job.state)
+  );
+}
+
+async function pollActiveBatches() {
+  if (batchPollInFlight) {
+    return;
+  }
+
+  const jobsToPoll = state.jobs.filter(shouldPollJob);
+  if (!jobsToPoll.length) {
+    return;
+  }
+
+  batchPollInFlight = true;
+  try {
+    for (const job of jobsToPoll) {
+      await refreshBatch(job.id, { silent: true });
+    }
+  } finally {
+    batchPollInFlight = false;
+  }
+}
+
+function ensureBatchPolling() {
+  if (batchPollTimer) {
+    return;
+  }
+
+  batchPollTimer = window.setInterval(() => {
+    pollActiveBatches().catch((error) => {
+      addLog(`Batch polling failed: ${error.message}`);
+    });
+  }, BATCH_POLL_INTERVAL_MS);
+}
+
+function shouldLogProgress(payload) {
+  const job = findJob(payload.jobId);
+  if (!job) {
+    return true;
+  }
+
+  if (job.mode !== 'batch' || payload.kind !== 'job-progress') {
+    return true;
+  }
+
+  if (/^Failed\b/.test(payload.message || '')) {
+    return true;
+  }
+
+  return (
+    payload.completed === 1 ||
+    payload.completed === payload.total ||
+    payload.completed % 25 === 0
+  );
+}
+
+function handleJobLifecycleEvent(job, { started = false } = {}) {
+  const previousJob = findJob(job.id);
+  const previousState = previousJob?.state;
+  upsertJob(job);
+  renderJobs();
+  renderActiveJob();
+  ensureBatchPolling();
+
+  if (job.activityMessage) {
+    els.runStatus.textContent = job.activityMessage;
+  } else if (started) {
+    els.runStatus.textContent = `Started ${job.mode} job ${job.id}.`;
+  } else if (!TERMINAL_JOB_STATES.has(job.state)) {
+    els.runStatus.textContent = `Job ${job.id}: ${job.state}`;
+  } else {
+    els.runStatus.textContent = `Job ${job.id}: ${job.state}`;
+  }
+
+  if (started) {
+    addLog(`Started ${job.mode} job ${job.id}.`);
+    return;
+  }
+
+  if (previousState && previousState !== job.state) {
+    addLog(`Job ${job.id} is now ${job.state}.`);
+  }
+}
+
+async function resumeSavedBatchesOnLaunch() {
+  const resumableJobs = state.jobs.filter(shouldPollJob);
+  if (!resumableJobs.length) {
+    return;
+  }
+
+  addLog(
+    `Resuming ${resumableJobs.length} saved batch job${resumableJobs.length === 1 ? '' : 's'} from the previous session...`,
+  );
+  await pollActiveBatches();
 }
 
 function bindEvents() {
@@ -679,16 +944,14 @@ function bindEvents() {
   els.installUpdateButton.addEventListener('click', installUpdate);
 
   window.carStudioAPI.onRunEvent((payload) => {
-    if (payload.kind === 'job-progress' || payload.kind === 'job-log') {
+    if ((payload.kind === 'job-progress' && shouldLogProgress(payload)) || payload.kind === 'job-log') {
       addLog(payload.message);
     }
     if (payload.kind === 'job-updated') {
-      addLog(`Job ${payload.job.id} is now ${payload.job.state}.`);
-      reloadJobs();
+      handleJobLifecycleEvent(payload.job);
     }
     if (payload.kind === 'job-started') {
-      addLog(`Started ${payload.job.mode} job ${payload.job.id}.`);
-      reloadJobs();
+      handleJobLifecycleEvent(payload.job, { started: true });
     }
   });
 
@@ -711,6 +974,8 @@ async function bootstrap() {
   await reloadSettings();
   await reloadUpdateStatus();
   await reloadJobs();
+  await resumeSavedBatchesOnLaunch();
+  ensureBatchPolling();
   renderCarsList();
   renderLogs();
 }

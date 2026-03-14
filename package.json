@@ -1,6 +1,6 @@
 {
   "name": "reference-studio",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "macOS desktop app for Gemini-powered reference-based image generation workflows.",
   "author": "Subaigsuri",
   "type": "module",
@@ -32,6 +32,12 @@
   "build": {
     "appId": "com.subaigsuri.referencestudio",
     "productName": "Reference Studio",
+    "publish": {
+      "provider": "github",
+      "owner": "g1mliii",
+      "repo": "Reference-Studio",
+      "private": false
+    },
     "files": [
       "src/**/*",
       "package.json"
@@ -50,7 +56,7 @@
         "dmg",
         "zip"
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "Reference-Studio-${version}-${arch}.${ext}"
     }
   }
 }

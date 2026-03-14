@@ -31,6 +31,7 @@ export const JOB_STATES = Object.freeze({
   READY: 'ready',
   RUNNING: 'running',
   PAUSED: 'paused',
+  CANCELLED: 'cancelled',
   SUBMITTED: 'submitted',
   PROCESSING: 'processing',
   COMPLETED: 'completed',

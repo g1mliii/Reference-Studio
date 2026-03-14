@@ -168,6 +168,12 @@ textarea {
   gap: 22px;
 }
 
+.status-stack {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+
 .panel-grid {
   grid-template-columns: 1.3fr 0.7fr;
 }
@@ -325,6 +331,42 @@ textarea {
   word-break: break-word;
 }
 
+.active-job-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.active-job-meta,
+.job-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.active-job-summary,
+.job-note,
+.job-remote-id {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.job-note.important {
+  color: var(--accent-dark);
+}
+
+.active-job-card .inline-actions {
+  margin-top: 4px;
+}
+
 .card-heading {
   display: flex;
   align-items: center;
@@ -448,7 +490,6 @@ textarea {
 }
 
 .job-card header,
-.job-card .job-meta,
 .job-card .job-actions {
   display: flex;
   justify-content: space-between;

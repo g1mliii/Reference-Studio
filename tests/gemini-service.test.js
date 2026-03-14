@@ -2,12 +2,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { createPartFromUri } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   extractFirstInlineImage,
   GeminiService,
+  isRateLimitError,
   mimeTypeForFile,
+  retryDelayMsFromError,
 } from '../src/main/services/gemini-service.js';
 
 const temporaryDirectories = [];
@@ -86,5 +89,62 @@ describe('GeminiService helpers', () => {
     expect(payload.file).toBeInstanceOf(Blob);
     expect(payload.file.type).toBe('image/png');
     expect(Buffer.from(await payload.file.arrayBuffer())).toEqual(Buffer.from('image-data'));
+  });
+
+  it('builds file-batch records in Gemini request format', () => {
+    const service = new GeminiService({ apiKey: 'test-key' });
+
+    const record = service.buildBatchFileRecord({
+      prompt: 'test prompt',
+      referenceUpload: { uri: 'files/ref', mimeType: 'image/png' },
+      carUpload: { uri: 'files/car', mimeType: 'image/png' },
+      metadata: { requestKey: 'req-1' },
+      searchEnabled: true,
+    });
+
+    expect(record.metadata).toEqual({ requestKey: 'req-1' });
+    expect(record.request.contents).toHaveLength(1);
+    expect(record.request.contents[0].parts[0]).toEqual({ text: 'test prompt' });
+    expect(record.request.contents[0].parts[1]).toEqual(
+      createPartFromUri('files/ref', 'image/png'),
+    );
+    expect(record.request.contents[0].parts[2]).toEqual(
+      createPartFromUri('files/car', 'image/png'),
+    );
+    expect(record.request.generationConfig).toEqual({
+      responseModalities: ['IMAGE'],
+      imageConfig: {
+        aspectRatio: '1:1',
+        imageSize: '1K',
+      },
+    });
+    expect(record.request.tools).toBeTruthy();
+  });
+
+  it('detects rate-limit style Gemini errors and derives retry delays', () => {
+    const rateLimitError = Object.assign(new Error('429 RESOURCE_EXHAUSTED: retry after 7s'), {
+      status: 429,
+    });
+
+    expect(isRateLimitError(rateLimitError)).toBe(true);
+    expect(retryDelayMsFromError(rateLimitError, 1, { baseDelayMs: 1000, maxDelayMs: 10000 })).toBe(
+      7000,
+    );
+
+    const retryInfoError = Object.assign(new Error('too many requests'), {
+      details: [{ retryDelay: '12s' }],
+    });
+    expect(retryDelayMsFromError(retryInfoError, 2, { baseDelayMs: 1000, maxDelayMs: 15000 })).toBe(
+      12000,
+    );
+
+    const genericRateLimitError = new Error('Rate limit exceeded');
+    expect(isRateLimitError(genericRateLimitError)).toBe(true);
+    expect(
+      retryDelayMsFromError(genericRateLimitError, 3, {
+        baseDelayMs: 500,
+        maxDelayMs: 5000,
+      }),
+    ).toBe(2000);
   });
 });

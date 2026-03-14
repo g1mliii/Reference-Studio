@@ -127,6 +127,7 @@ app.whenReady().then(async () => {
   runManager = new RunManager({
     settingsStore,
     jobStore,
+    userDataPath: app.getPath('userData'),
   });
   updateService = new UpdateService({
     app,
@@ -168,6 +169,12 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle('runs:resume-job', (_event, payload) =>
     runManager.resumeJob({
+      ...payload,
+      window: mainWindow,
+    }),
+  );
+  ipcMain.handle('runs:cancel-job', (_event, payload) =>
+    runManager.cancelJob({
       ...payload,
       window: mainWindow,
     }),

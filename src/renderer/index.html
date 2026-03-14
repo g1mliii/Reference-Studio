@@ -105,30 +105,42 @@
               </div>
             </div>
 
-            <div class="card status-card">
-              <h3>Current Setup</h3>
-              <dl class="status-list">
-                <div>
-                  <dt>API Key</dt>
-                  <dd id="status-api-key">Not saved</dd>
+            <div class="status-stack">
+              <div class="card status-card">
+                <h3>Current Setup</h3>
+                <dl class="status-list">
+                  <div>
+                    <dt>API Key</dt>
+                    <dd id="status-api-key">Not saved</dd>
+                  </div>
+                  <div>
+                    <dt>Reference Images</dt>
+                    <dd id="status-references">0 saved</dd>
+                  </div>
+                  <div>
+                    <dt>Projected Outputs</dt>
+                    <dd id="status-outputs">0</dd>
+                  </div>
+                  <div>
+                    <dt>Model</dt>
+                    <dd id="status-model">gemini-3-pro-image-preview</dd>
+                  </div>
+                  <div>
+                    <dt>Search</dt>
+                    <dd id="status-search">Enabled</dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div class="card active-job-card">
+                <div class="card-heading compact">
+                  <h3>Active Job</h3>
+                  <span id="active-job-pill" class="pill">Idle</span>
                 </div>
-                <div>
-                  <dt>Reference Images</dt>
-                  <dd id="status-references">0 saved</dd>
+                <div id="active-job-panel" class="active-job-panel">
+                  <div class="empty-state">No active sync or batch job right now.</div>
                 </div>
-                <div>
-                  <dt>Projected Outputs</dt>
-                  <dd id="status-outputs">0</dd>
-                </div>
-                <div>
-                  <dt>Model</dt>
-                  <dd id="status-model">gemini-3-pro-image-preview</dd>
-                </div>
-                <div>
-                  <dt>Search</dt>
-                  <dd id="status-search">Enabled</dd>
-                </div>
-              </dl>
+              </div>
             </div>
           </div>
 
@@ -200,7 +212,7 @@
               <dl class="status-list">
                 <div>
                   <dt>Current Version</dt>
-                  <dd id="update-current-version">0.1.0</dd>
+                  <dd id="update-current-version">0.1.4</dd>
                 </div>
                 <div>
                   <dt>Release Feed</dt>
