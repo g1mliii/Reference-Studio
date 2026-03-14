@@ -559,6 +559,8 @@ function escapeHtml(value) {
 
 async function reloadSettings() {
   state.settings = await window.carStudioAPI.loadSettings();
+  if (state.settings.carsDir && !state.carsDir) state.carsDir = state.settings.carsDir;
+  if (state.settings.outputDir && !state.outputDir) state.outputDir = state.settings.outputDir;
   renderAll();
 }
 
@@ -642,6 +644,7 @@ async function chooseDirectory(target) {
   } else {
     state.outputDir = selected;
   }
+  window.carStudioAPI.saveSettings({ carsDir: state.carsDir, outputDir: state.outputDir }).catch(() => {});
   renderAll();
 }
 

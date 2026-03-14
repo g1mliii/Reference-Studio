@@ -35,6 +35,8 @@ function defaultSettingsData() {
     plainApiKey: null,
     apiKeyUpdatedAt: null,
     updatedAt: null,
+    carsDir: '',
+    outputDir: '',
   };
 }
 
@@ -76,6 +78,8 @@ export class SettingsStore {
         typeof partialSettings.updateAutoCheck === 'boolean'
           ? partialSettings.updateAutoCheck
           : current.updateAutoCheck,
+      carsDir: typeof partialSettings.carsDir === 'string' ? partialSettings.carsDir : current.carsDir,
+      outputDir: typeof partialSettings.outputDir === 'string' ? partialSettings.outputDir : current.outputDir,
       updatedAt: timestamp,
     };
 
@@ -162,6 +166,8 @@ export class SettingsStore {
       apiKeyPreview: apiKey ? `${apiKey.slice(0, 4)}••••${apiKey.slice(-4)}` : '',
       apiKeyUpdatedAt: raw.apiKeyUpdatedAt,
       updatedAt: raw.updatedAt,
+      carsDir: raw.carsDir || '',
+      outputDir: raw.outputDir || '',
     };
   }
 }
