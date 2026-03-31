@@ -4,8 +4,11 @@
   "description": "macOS desktop app for Gemini-powered reference-based image generation workflows.",
   "author": "Subaigsuri",
   "type": "module",
+  "packageManager": "npm@11.6.2",
   "main": "src/main/index.js",
   "scripts": {
+    "preinstall": "node scripts/check-compromised-deps.mjs",
+    "security:deps": "node scripts/check-compromised-deps.mjs",
     "start": "electron .",
     "test": "vitest run",
     "test:watch": "vitest",
